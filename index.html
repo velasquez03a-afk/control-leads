@@ -590,6 +590,8 @@ function renderMiResumen(){
   // KPIs solo de semanas visibles
   const basVisMR=semanasVisMR.flatMap(sw=>semsMap[sw.sem]||[]);
   const gt=statsCanal(basVisMR);
+  // Afiliados por fecha de afiliación
+  const totalAfilVisMR=semanasVisMR.reduce((a,sw)=>a+(afilMap[sw.sem]||[]).length,0);
   const rangoMes=semanasDelMes.length>0
 
   const selectorMes='<div style="display:flex;align-items:center;gap:8px">'
@@ -646,7 +648,7 @@ function renderMiResumen(){
     +'<div class="g4" style="margin-bottom:1rem">'
     +'<div class="mcard"><div class="mval">'+gt.chats+'</div><div class="mlbl">Chats iniciados</div></div>'
     +'<div class="mcard"><div class="mval" style="color:var(--blue)">'+(gt.ca||0)+'</div><div class="mlbl">Cal. activos</div><div class="msub" style="color:var(--blue)">'+pct(gt.ca||0,gt.chats)+'</div></div>'
-    +'<div class="mcard"><div class="mval" style="color:var(--green)">'+gt.afil+'</div><div class="mlbl">Afiliados</div><div class="msub" style="color:var(--green)">'+(metaVal>0?pct(gt.afil,metaVal)+' de meta':pct(gt.afil,gt.chats))+'</div></div>'
+    +'<div class="mcard"><div class="mval" style="color:var(--green)">'+totalAfilVisMR+'</div><div class="mlbl">Afiliados</div><div class="msub" style="color:var(--green)">'+(metaVal>0?pct(totalAfilVisMR,metaVal)+' de meta':pct(totalAfilVisMR,gt.chats))+'</div></div>'
     +'<div class="mcard"><div class="mval" style="color:var(--err)">'+basVisMR.filter(c=>c.dropout).length+'</div><div class="mlbl">No continuaron</div></div>'
     +'</div>'
     +(semanasVisMR.length===0?'<div class="card" style="padding:2rem;text-align:center;color:var(--text2)">Sin actividad en '+mesSel+'.</div>':flotas_html)
@@ -1701,6 +1703,8 @@ function renderMensual(){
   // KPIs de semanas visibles
   const basVis=semanasVis.flatMap(sw=>semsMap[sw.sem]||[]);
   const gt=statsCanal(basVis);
+  // Afiliados: contar por fecha de afiliación (afilMap) para semanas visibles
+  const totalAfilVis=semanasVis.reduce((a,sw)=>a+(afilMap[sw.sem]||[]).length,0);
 
   // Motivos de baja por flota (semanas visibles)
   const motivosHTML=FLOTAS.map(flota=>{
@@ -1777,7 +1781,7 @@ function renderMensual(){
       :'<div class="g4" style="margin-bottom:1rem">'
       +'<div class="mcard"><div class="mval">'+gt.chats+'</div><div class="mlbl">Chats iniciados</div></div>'
       +'<div class="mcard"><div class="mval" style="color:var(--blue)">'+(gt.ca||0)+'</div><div class="mlbl">Cal. activos</div><div class="msub" style="color:var(--blue)">'+pct(gt.ca||0,gt.chats)+'</div></div>'
-      +'<div class="mcard"><div class="mval" style="color:var(--green)">'+gt.afil+'</div><div class="mlbl">Afiliados</div><div class="msub" style="color:var(--green)">'+(metaVal>0?pct(gt.afil,metaVal)+' de meta':pct(gt.afil,gt.chats))+'</div></div>'
+      +'<div class="mcard"><div class="mval" style="color:var(--green)">'+totalAfilVis+'</div><div class="mlbl">Afiliados</div><div class="msub" style="color:var(--green)">'+(metaVal>0?pct(totalAfilVis,metaVal)+' de meta':pct(totalAfilVis,gt.chats))+'</div></div>'
       +'<div class="mcard"><div class="mval" style="color:var(--err)">'+basVis.filter(c=>c.dropout).length+'</div><div class="mlbl">No continuaron</div></div>'
       +'</div>'
       +flotas_html
