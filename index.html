@@ -147,10 +147,19 @@ function normCel(v){
   return d;
 }
 // ¿Este conductor comparte celular con otro conductor ya registrado (por otra afiliadora u otra vez)?
+// Solo cuenta como duplicado si algún campo NO coincide (afiliadora, flota, canal o fecha distintos).
+// Si es un registro idéntico en todo (mismo nombre/flota/canal/agente/fecha), no se marca como duplicado.
+function _registroIdentico(a,b){
+  return (a.nombre||'').trim()===(b.nombre||'').trim()
+    &&a.flota===b.flota
+    &&a.canal===b.canal
+    &&a.agenteId===b.agenteId
+    &&a.fechaContacto===b.fechaContacto;
+}
 function esDuplicado(c){
   const cel=normCel(c.celular);
   if(cel.length<7) return false;
-  return ST.conductores.some(x=>x.id!==c.id&&normCel(x.celular)===cel);
+  return ST.conductores.some(x=>x.id!==c.id&&normCel(x.celular)===cel&&!_registroIdentico(c,x));
 }
 
 
@@ -896,13 +905,22 @@ async function guardarC(){
   if(!fl){err.textContent='Selecciona una flota.';return;}
   if(!ca){err.textContent='Selecciona un canal.';return;}
 
-  // ── Aviso de duplicados por celular (NO bloquea el registro: un conductor puede contactar a varias afiliadoras) ──
-  const celNorm=normCel(cel);
-  const dupCel=celNorm.length>=7?ST.conductores.find(x=>normCel(x.celular)===celNorm):null;
-
   const u=ST.users.find(x=>x.id===ST.session);
   const isA=u&&u.role==='admin';
   const agenteId=isA?(document.getElementById('cn-ag')?.value||ST.session):ST.session;
+
+  // ── Duplicados por celular ──
+  // Bloquea si el MISMO agente ya registró ese celular (no aporta valor duplicarlo bajo su propio usuario).
+  // Permite (con aviso) si el celular ya existe pero registrado por OTRA afiliadora.
+  const celNorm=normCel(cel);
+  const dupMismoAgente=celNorm.length>=7?ST.conductores.find(x=>normCel(x.celular)===celNorm&&x.agenteId===agenteId):null;
+  if(dupMismoAgente){
+    err.textContent='⚠ Ya registraste este celular anteriormente como "'+dupMismoAgente.nombre+'". No puedes volver a registrarlo bajo tu mismo usuario.';
+    err.style.color='#B45309';
+    return;
+  }
+  const dupCel=celNorm.length>=7?ST.conductores.find(x=>normCel(x.celular)===celNorm):null;
+
   ST.conductores.push({
     id:'c'+Date.now(),nombre:n,celular:cel,flota:fl,canal:ca,agenteId,
     fechaContacto:f,etapa:0,dropout:false,motivoDropout:'',
@@ -1934,8 +1952,14 @@ function savePin(uid){
 function editarCelular(id, val){
   const c=ST.conductores.find(x=>x.id===id);
   if(!c)return;
-  c.celular=val.trim();
   const norm=normCel(val);
+  const dupMismoAgente=norm.length>=7?ST.conductores.find(x=>x.id!==id&&normCel(x.celular)===norm&&x.agenteId===c.agenteId):null;
+  if(dupMismoAgente){
+    gMsg('⚠ Ya tienes registrado ese celular en "'+dupMismoAgente.nombre+'". No se guardó el cambio.');
+    renderSec();
+    return;
+  }
+  c.celular=val.trim();
   const dup=norm.length>=7?ST.conductores.find(x=>x.id!==id&&normCel(x.celular)===norm):null;
   saveBin();
   renderSec();
@@ -2315,6 +2339,8 @@ function renderSupervisionMerged(){
   const fCel=(document.getElementById('sv2-cel')?.value||'').replace(/\D/g,'').trim();
   const fF1=document.getElementById('sv2-f1')?.value||'';
   const fF2=document.getElementById('sv2-f2')?.value||'';
+  const fM1=document.getElementById('sv2-m1')?.value||'';
+  const fM2=document.getElementById('sv2-m2')?.value||'';
 
   let base=ST.conductores;
   if(fFlota)base=base.filter(c=>c.flota===fFlota);
@@ -2327,6 +2353,8 @@ function renderSupervisionMerged(){
   if(fCel)base=base.filter(c=>(c.celular||'').replace(/\D/g,'').includes(fCel));
   if(fF1)base=base.filter(c=>c.fechaContacto>=fF1);
   if(fF2)base=base.filter(c=>c.fechaContacto<=fF2);
+  if(fM1)base=base.filter(c=>ultimaFecha(c)>=fM1);
+  if(fM2)base=base.filter(c=>ultimaFecha(c)<=fM2);
 
   const all=ST.conductores;
   const kT=all.length;
@@ -2353,13 +2381,17 @@ function renderSupervisionMerged(){
     +'<div class="fg" style="margin:0"><label>Flota</label><select id="sv2-flota" onchange="renderSec()"><option value="">Todas</option>'+FLOTAS.map(f=>'<option value="'+f+'"'+(fFlota===f?' selected':'')+'>'+f+'</option>').join('')+'</select></div>'
     +'<div class="fg" style="margin:0"><label>Canal</label><select id="sv2-canal" onchange="renderSec()"><option value="">Todos</option>'+CANALES.map(f=>'<option value="'+f+'"'+(fCanal===f?' selected':'')+'>'+f+'</option>').join('')+'</select></div>'
     +'</div>'
-    +'<div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;align-items:end">'
+    +'<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;align-items:end;margin-bottom:8px">'
     +'<div class="fg" style="margin:0"><label>Agente</label><select id="sv2-agente" onchange="renderSec()"><option value="">Todas</option>'+ST.users.filter(u=>u.role==='agente').map(u=>'<option value="'+u.id+'"'+(fAgente===u.id?' selected':'')+'>'+u.nombre+'</option>').join('')+'</select></div>'
     +'<div class="fg" style="margin:0"><label>Estado</label><select id="sv2-estado" onchange="renderSec()"><option value="">Todos</option><option value="activos"'+(fEstado==='activos'?' selected':'')+'>En proceso</option><option value="afiliados"'+(fEstado==='afiliados'?' selected':'')+'>Afiliados</option><option value="dropout"'+(fEstado==='dropout'?' selected':'')+'>No continuaron</option></select></div>'
-    +'<div class="fg" style="margin:0"><label>Desde</label><input type="date" id="sv2-f1" value="'+fF1+'" onchange="renderSec()"></div>'
-    +'<div class="fg" style="margin:0"><label>Hasta</label><input type="date" id="sv2-f2" value="'+fF2+'" onchange="renderSec()"></div>'
-    +'<div style="display:flex;gap:6px;padding-bottom:2px"><button class="btn btn-sm" onclick="limpiarSV2()"><i class="ti ti-x"></i> Limpiar</button>'
+    +'<div style="display:flex;gap:6px;padding-bottom:2px;align-items:end"><button class="btn btn-sm" onclick="limpiarSV2()"><i class="ti ti-x"></i> Limpiar</button>'
     +'<button class="btn btn-p btn-sm" onclick="exportarXLSX(base_sv2,\'supervision_'+hoy()+'.xls\')"><i class="ti ti-download"></i> Excel</button></div>'
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;align-items:end">'
+    +'<div class="fg" style="margin:0"><label>Fecha contacto: Desde</label><input type="date" id="sv2-f1" value="'+fF1+'" onchange="renderSec()"></div>'
+    +'<div class="fg" style="margin:0"><label>Fecha contacto: Hasta</label><input type="date" id="sv2-f2" value="'+fF2+'" onchange="renderSec()"></div>'
+    +'<div class="fg" style="margin:0"><label>Último mov.: Desde</label><input type="date" id="sv2-m1" value="'+fM1+'" onchange="renderSec()"></div>'
+    +'<div class="fg" style="margin:0"><label>Último mov.: Hasta</label><input type="date" id="sv2-m2" value="'+fM2+'" onchange="renderSec()"></div>'
     +'</div>'
     +'<div style="font-size:12px;color:var(--text2);margin-top:8px">'+base.length+' conductor'+(base.length!==1?'es':'')+' encontrado'+(base.length!==1?'s':'')+'</div>'
     +'</div>';
@@ -2428,7 +2460,7 @@ function sv2SetEstado(val){
 }
 
 function limpiarSV2(){
-  ['sv2-busca','sv2-cel','sv2-flota','sv2-canal','sv2-agente','sv2-estado','sv2-f1','sv2-f2'].forEach(id=>{
+  ['sv2-busca','sv2-cel','sv2-flota','sv2-canal','sv2-agente','sv2-estado','sv2-f1','sv2-f2','sv2-m1','sv2-m2'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.value='';
   });
   renderSec();
@@ -2877,8 +2909,14 @@ async function guardarEdicionAdmin(id){
   const fechaAfil=document.getElementById('ea-fechaafil')?.value;
   const err=document.getElementById('ea-err');
   if(!n){err.textContent='El nombre es obligatorio.';return;}
-  // Aviso de duplicado (no bloquea el guardado)
+  // Bloquea si el celular ya existe bajo el MISMO agente que se está asignando; permite (con aviso) si es de otra afiliadora
   const celNorm=normCel(cel);
+  const dupMismoAgente=celNorm.length>=7?ST.conductores.find(x=>x.id!==id&&normCel(x.celular)===celNorm&&x.agenteId===agenteId):null;
+  if(dupMismoAgente){
+    err.textContent='⚠ Ese celular ya está registrado por esta misma afiliadora en "'+dupMismoAgente.nombre+'".';
+    err.style.color='#B45309';
+    return;
+  }
   const dup=celNorm.length>=7?ST.conductores.find(x=>x.id!==id&&normCel(x.celular)===celNorm):null;
   // Apply changes
   c.nombre=n;
@@ -2919,7 +2957,7 @@ function modalCargaMasiva(){
           • <b>Columna R</b> → Agente(s) asignado(s). Si hay varios agentes separados por coma, se crea <b>un registro por cada aparición</b>.
         </div>
         <div style="margin-top:8px;font-size:11px;color:var(--text2)">
-          ⏭ Si un celular ya está registrado en la app (o se repite dentro del mismo archivo), <b>no se importa ni se modifica</b>: se omite automáticamente.
+          ⏭ Si un celular ya está registrado por <b>esa misma afiliadora</b> (en la app o dentro del propio archivo), no se importa ni se modifica: se omite automáticamente. Si el celular ya existe pero de <b>otra afiliadora distinta</b>, sí se importa (quedará marcado como "duplicado" en la lista).
         <div style="margin-top:8px;font-size:11px;color:var(--text2)">
           Códigos de agente reconocidos: <b>asalinas</b> → AndreaS · <b>acornejo</b> → AndreaC · <b>jliza</b> → Jennifer · <b>sgonzales</b> → Rommy
         </div>
@@ -3065,9 +3103,10 @@ function _procesarReporteChat(matrix){
 
   _cargaPreview=[];
   let filasVacias=0;
-  // Teléfonos ya registrados en la app (no se tocan) — se va ampliando con cada nuevo conductor
-  // encontrado en el archivo, para no crear varios registros del mismo conductor si aparece en varias filas.
-  const celularesVistos=new Set(ST.conductores.map(c=>normCel(c.celular)).filter(c=>c.length>=7));
+  // Combinación celular+agente ya registrada (en la app o en filas anteriores de este archivo).
+  // Ya no se compara solo por celular: se permite que OTRA afiliadora registre el mismo celular
+  // (se marcará como duplicado en la lista), pero se evita que LA MISMA afiliadora lo registre dos veces.
+  const combosVistos=new Set(ST.conductores.map(c=>normCel(c.celular)+'|'+(c.agenteId||'')).filter(k=>k.split('|')[0].length>=7));
 
   for(let r=headerIdx+1;r<matrix.length;r++){
     const fila=matrix[r]||[];
@@ -3082,21 +3121,22 @@ function _procesarReporteChat(matrix){
 
     const flota=_extraerFlotaDeEtiquetas(etiquetas);
     const fecha=_parseFechaReporte(fechaRaw);
-    const yaExiste=cel.length>=7&&celularesVistos.has(cel);
-
-    if(yaExiste){
-      // Ya está registrado (en la app o en una fila anterior de este mismo archivo): no se crea ni se modifica nada.
-      _cargaPreview.push({nombre,cel,flota,canal:'Meta',agenteId:null,agenteCodigoOriginal:'',fecha,isDup:true,_row:r+1});
-      continue;
-    }
-    if(cel.length>=7) celularesVistos.add(cel);
 
     const tokens=agentesRaw?agentesRaw.split(',').map(s=>s.trim()).filter(Boolean):[''];
     tokens.forEach(tok=>{
       const agenteUser=_resolverAgentePorCodigo(tok);
+      const agenteId=agenteUser?agenteUser.id:null;
+      const combo=cel+'|'+(agenteId||'');
+      const yaExiste=cel.length>=7&&combosVistos.has(combo);
+      if(yaExiste){
+        // Esa misma afiliadora ya tiene este celular: no se crea ni se modifica nada.
+        _cargaPreview.push({nombre,cel,flota,canal:'Meta',agenteId,agenteCodigoOriginal:tok||'',fecha,isDup:true,_row:r+1});
+        return;
+      }
+      if(cel.length>=7) combosVistos.add(combo);
       _cargaPreview.push({
         nombre,cel,flota,canal:'Meta',
-        agenteId:agenteUser?agenteUser.id:null,
+        agenteId,
         agenteCodigoOriginal:tok||'',
         fecha,isDup:false,_row:r+1
       });
@@ -3144,7 +3184,7 @@ function _normalizarAgente(v){
 
 function _procesarRows(rows){
   _cargaPreview=[];
-  const celularesVistos=new Set(ST.conductores.map(c=>normCel(c.celular)).filter(c=>c.length>=7));
+  const combosVistos=new Set(ST.conductores.map(c=>normCel(c.celular)+'|'+(c.agenteId||'')).filter(k=>k.split('|')[0].length>=7));
   let err=0;
 
   rows.forEach((row,i)=>{
@@ -3155,8 +3195,9 @@ function _procesarRows(rows){
     const canal=_normalizarCanal(row.canal||'');
     const agenteId=_normalizarAgente(row.agente||row['afiliadora']||'');
     const fecha=_parseFecha(row.fecha||row['date']||'');
-    const isDup=cel.length>=7&&celularesVistos.has(cel);
-    if(!isDup&&cel.length>=7) celularesVistos.add(cel);
+    const combo=cel+'|'+(agenteId||'');
+    const isDup=cel.length>=7&&combosVistos.has(combo);
+    if(!isDup&&cel.length>=7) combosVistos.add(combo);
     _cargaPreview.push({nombre,cel,flota,canal,agenteId,fecha,isDup,_row:i+2});
   });
 
@@ -3221,7 +3262,7 @@ async function importarConductoresMasivo(){
   const u=ST.users.find(x=>x.id===ST.session);
 
   _cargaPreview.forEach((row,i)=>{
-    if(row.isDup){omitidos++;return;} // ya registrado: no se toca, no se importa
+    if(row.isDup){omitidos++;return;} // esa misma afiliadora ya lo tiene registrado: no se toca, no se importa
     ST.conductores.push({
       id:'cm_'+ts+'_'+i,
       nombre:row.nombre,
@@ -3300,6 +3341,8 @@ function exportDataGral(){
   const fCel=(document.getElementById('dg-cel')?.value||'').replace(/\D/g,'');
   const fF1=document.getElementById('dg-f1')?.value||'';
   const fF2=document.getElementById('dg-f2')?.value||'';
+  const fM1=document.getElementById('dg-m1')?.value||'';
+  const fM2=document.getElementById('dg-m2')?.value||'';
   let base=[...ST.conductores].sort((a,b)=>b.fechaContacto.localeCompare(a.fechaContacto));
   if(fFlota) base=base.filter(c=>c.flota===fFlota);
   if(fCanal) base=base.filter(c=>c.canal===fCanal);
@@ -3311,6 +3354,8 @@ function exportDataGral(){
   if(fCel) base=base.filter(c=>(c.celular||'').replace(/\D/g,'').includes(fCel));
   if(fF1) base=base.filter(c=>c.fechaContacto>=fF1);
   if(fF2) base=base.filter(c=>c.fechaContacto<=fF2);
+  if(fM1) base=base.filter(c=>ultimaFecha(c)>=fM1);
+  if(fM2) base=base.filter(c=>ultimaFecha(c)<=fM2);
   exportarXLSX(base,'data_general_'+hoy()+'.xls');
   gMsg('Excel descargado: '+base.length+' registros.');
 }
@@ -3338,7 +3383,7 @@ function exportListaFiltrada(){
 function verConductor(btn){const id=btn.getAttribute('data-id');if(id)verC(id);}
 function filtrarEstadoMD(ev,el){const sel=document.getElementById('md-estado');if(sel){sel.value=el.getAttribute('data-newval');renderSec();}}
 function limpiarMDFiltros(){['md-flota','md-estado'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});renderSec();}
-function limpiarDG(){['dg-busca','dg-cel','dg-flota','dg-canal','dg-agente','dg-estado','dg-f1','dg-f2'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});renderSec();}
+function limpiarDG(){['dg-busca','dg-cel','dg-flota','dg-canal','dg-agente','dg-estado','dg-f1','dg-f2','dg-m1','dg-m2'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});renderSec();}
 function limpiarSV(){['sv-busca','sv-flota','sv-estado','sv-agente','sv-f1','sv-f2'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});renderSec();}
 
 function modalMetas(){
@@ -3433,6 +3478,8 @@ function renderDataGral(){
   const fCel=(document.getElementById('dg-cel')?.value||'').replace(/\D/g,'');
   const fF1=document.getElementById('dg-f1')?.value||'';
   const fF2=document.getElementById('dg-f2')?.value||'';
+  const fM1=document.getElementById('dg-m1')?.value||'';
+  const fM2=document.getElementById('dg-m2')?.value||'';
   let base=[...ST.conductores].sort((a,b)=>b.fechaContacto.localeCompare(a.fechaContacto));
   if(fFlota) base=base.filter(c=>c.flota===fFlota);
   if(fCanal) base=base.filter(c=>c.canal===fCanal);
@@ -3444,6 +3491,8 @@ function renderDataGral(){
   if(fCel) base=base.filter(c=>(c.celular||'').replace(/\D/g,'').includes(fCel));
   if(fF1) base=base.filter(c=>c.fechaContacto>=fF1);
   if(fF2) base=base.filter(c=>c.fechaContacto<=fF2);
+  if(fM1) base=base.filter(c=>ultimaFecha(c)>=fM1);
+  if(fM2) base=base.filter(c=>ultimaFecha(c)<=fM2);
   const all=ST.conductores;
   const kT=all.length,kA=all.filter(c=>!c.dropout&&c.etapa<7).length,kAf=all.filter(c=>c.etapa===7).length,kD=all.filter(c=>c.dropout).length;
   return'<div>'
@@ -3460,11 +3509,15 @@ function renderDataGral(){
     +'<div class="fg" style="margin:0"><label>Flota</label><select id="dg-flota" onchange="renderSec()"><option value="">Todas</option>'+FLOTAS.map(f=>'<option value="'+f+'"'+(fFlota===f?' selected':'')+'>'+f+'</option>').join('')+'</select></div>'
     +'<div class="fg" style="margin:0"><label>Canal</label><select id="dg-canal" onchange="renderSec()"><option value="">Todos</option>'+CANALES.map(c=>'<option value="'+c+'"'+(fCanal===c?' selected':'')+'>'+c+'</option>').join('')+'</select></div>'
     +'</div>'
-    +'<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;align-items:end">'
+    +'<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;align-items:end;margin-bottom:8px">'
     +'<div class="fg" style="margin:0"><label>Agente</label><select id="dg-agente" onchange="renderSec()"><option value="">Todos</option>'+ST.users.filter(x=>x.role==='agente').map(u=>'<option value="'+u.id+'"'+(fAgente===u.id?' selected':'')+'>'+u.nombre+'</option>').join('')+'</select></div>'
     +'<div class="fg" style="margin:0"><label>Estado</label><select id="dg-estado" onchange="renderSec()"><option value="">Todos</option><option value="activos"'+(fEstado==='activos'?' selected':'')+'>En proceso</option><option value="afiliados"'+(fEstado==='afiliados'?' selected':'')+'>Afiliados</option><option value="dropout"'+(fEstado==='dropout'?' selected':'')+'>No continuaron</option></select></div>'
-    +'<div class="fg" style="margin:0"><label>Desde</label><input type="date" id="dg-f1" value="'+fF1+'" onchange="renderSec()"></div>'
-    +'<div class="fg" style="margin:0"><label>Hasta</label><input type="date" id="dg-f2" value="'+fF2+'" onchange="renderSec()"></div>'
+    +'</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;align-items:end">'
+    +'<div class="fg" style="margin:0"><label>Fecha contacto: Desde</label><input type="date" id="dg-f1" value="'+fF1+'" onchange="renderSec()"></div>'
+    +'<div class="fg" style="margin:0"><label>Fecha contacto: Hasta</label><input type="date" id="dg-f2" value="'+fF2+'" onchange="renderSec()"></div>'
+    +'<div class="fg" style="margin:0"><label>Último mov.: Desde</label><input type="date" id="dg-m1" value="'+fM1+'" onchange="renderSec()"></div>'
+    +'<div class="fg" style="margin:0"><label>Último mov.: Hasta</label><input type="date" id="dg-m2" value="'+fM2+'" onchange="renderSec()"></div>'
     +'</div>'
     +'<div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;flex-wrap:wrap;gap:8px">'
     +'<div style="font-size:12px;color:var(--text2)">'+base.length+' conductor'+(base.length!==1?'es':'')+' encontrado'+(base.length!==1?'s':'')+'</div>'
@@ -3526,8 +3579,8 @@ function renderSupervision(){
   if(fFlota)base=base.filter(c=>c.flota===fFlota);
   if(fAgente)base=base.filter(c=>c.agenteId===fAgente);
   if(fBusca)base=base.filter(c=>c.nombre.toLowerCase().includes(fBusca));
-  if(fF1)base=base.filter(c=>c.fechaContacto>=fF1);
-  if(fF2)base=base.filter(c=>c.fechaContacto<=fF2);
+  if(fF1)base=base.filter(c=>ultimaFecha(c)>=fF1);
+  if(fF2)base=base.filter(c=>ultimaFecha(c)<=fF2);
   const estadoFn=fEstado?ESTADOS.find(e=>e.key===fEstado)?.fn:null;
   if(estadoFn)base=base.filter(estadoFn);
   const kpis=ESTADOS.map(e=>({...e,count:ST.conductores.filter(c=>fFlota?c.flota===fFlota:true).filter(e.fn).length}));
