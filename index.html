@@ -147,14 +147,13 @@ function normCel(v){
   return d;
 }
 // ¿Este conductor comparte celular con otro conductor ya registrado (por otra afiliadora u otra vez)?
-// Solo cuenta como duplicado si algún campo NO coincide (afiliadora, flota, canal o fecha distintos).
-// Si es un registro idéntico en todo (mismo nombre/flota/canal/agente/fecha), no se marca como duplicado.
+// Solo cuenta como duplicado si flota, canal o agente son DISTINTOS.
+// Si celular, flota, canal y agente son todos iguales, se considera el mismo registro (no se marca duplicado),
+// sin importar diferencias en el nombre o en la fecha.
 function _registroIdentico(a,b){
-  return (a.nombre||'').trim()===(b.nombre||'').trim()
-    &&a.flota===b.flota
+  return a.flota===b.flota
     &&a.canal===b.canal
-    &&a.agenteId===b.agenteId
-    &&a.fechaContacto===b.fechaContacto;
+    &&a.agenteId===b.agenteId;
 }
 function esDuplicado(c){
   const cel=normCel(c.celular);
