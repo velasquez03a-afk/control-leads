@@ -3047,6 +3047,19 @@ function procesarArchivoCarga(file){
       gMsg('⚠ No se pudo leer el archivo Excel. Verifica que no esté dañado.');
       return;
     }
+    const sheetsAll=wb.SheetNames;
+    // Si el archivo tiene una hoja "Conductores" con el formato de backup (Nombre, Celular, Flota, Canal,
+    // Agente, Fecha contacto, Fecha último movimiento, Etapa, Estado, Motivo baja), usar ese parser específico.
+    const nombreHojaBackup=sheetsAll.find(n=>n.trim().toLowerCase()==='conductores');
+    if(nombreHojaBackup){
+      const sheetBk=wb.Sheets[nombreHojaBackup];
+      const matrixBk=XLSX.utils.sheet_to_json(sheetBk,{header:1,raw:false,defval:''});
+      const headerBk=(matrixBk[0]||[]).map(h=>String(h||'').trim().toLowerCase());
+      if(headerBk.includes('celular')&&headerBk.includes('agente')&&headerBk.some(h=>h.includes('último movimiento')||h.includes('ultimo movimiento'))){
+        _procesarBackupExcel(matrixBk,headerBk);
+        return;
+      }
+    }
     const sheet=wb.Sheets[wb.SheetNames[0]];
     const matrix=XLSX.utils.sheet_to_json(sheet,{header:1,raw:false,defval:''});
     _procesarReporteChat(matrix);
@@ -3095,6 +3108,81 @@ function _resolverAgentePorCodigo(codigo){
   }
   // fallback: coincidencia flexible por nombre, por si el archivo trae el nombre completo
   return agentes.find(x=>x.nombre.toLowerCase()===key||x.nombre.toLowerCase().includes(key)||key.includes(x.nombre.toLowerCase().split(' ')[0]))||null;
+}
+
+// Etapas tal como las escribe el backup de Google Sheets (ver Apps Script), en orden 0-7
+const ETAPAS_BACKUP_TXT=['Primer contacto','Interesado','Documentos','Evaluación','Capacitación','Aprobado','Contrato','Afiliado'];
+function _mapEtapaTextoBackup(txt){
+  const i=ETAPAS_BACKUP_TXT.findIndex(e=>e.toLowerCase()===String(txt||'').trim().toLowerCase());
+  return i>=0?i:0;
+}
+// Resuelve el nombre completo de agente/usuario (tal como aparece en el backup) al usuario del sistema
+function _resolverAgentePorNombre(nombre){
+  const key=String(nombre||'').trim().toLowerCase();
+  if(!key) return null;
+  const usuarios=ST.users; // incluye agentes, Supervisor y Marketing: un conductor puede quedar asignado a cualquiera
+  // Coincidencia exacta primero
+  let u=usuarios.find(x=>x.nombre.trim().toLowerCase()===key);
+  if(u) return u;
+  // Fallback flexible: por si el nombre cambió desde que se hizo el backup (ej. "Andrea Salinas" -> "AndreaS")
+  const keySinEsp=key.replace(/\s+/g,'');
+  u=usuarios.find(x=>{
+    const nSinEsp=x.nombre.trim().toLowerCase().replace(/\s+/g,'');
+    return nSinEsp.startsWith(keySinEsp)||keySinEsp.startsWith(nSinEsp);
+  });
+  return u||null;
+}
+
+// Procesa un archivo Excel que es un BACKUP ya exportado por la propia app (hoja "Conductores" con
+// columnas Nombre/Celular/Flota/Canal/Agente/Fecha contacto/Fecha último movimiento/Etapa/Estado/Motivo baja).
+// Sirve para restaurar/reconciliar datos: solo agrega lo que falta, nunca modifica lo ya registrado.
+function _procesarBackupExcel(matrix,header){
+  const col={};
+  header.forEach((h,i)=>{ col[h]=i; });
+  const idxNombre=col['nombre'];
+  const idxCelular=col['celular'];
+  const idxFlota=col['flota'];
+  const idxCanal=col['canal'];
+  const idxAgente=col['agente'];
+  const idxFechaContacto=header.findIndex(h=>h.includes('fecha contacto'));
+  const idxFechaUltimo=header.findIndex(h=>h.includes('último movimiento')||h.includes('ultimo movimiento'));
+  const idxEtapa=col['etapa'];
+  const idxEstado=col['estado'];
+  const idxMotivo=header.findIndex(h=>h.includes('motivo'));
+
+  _cargaPreview=[];
+  let filasVacias=0;
+  const combosVistos=new Set(ST.conductores.map(c=>normCel(c.celular)+'|'+(c.agenteId||'')).filter(k=>k.split('|')[0].length>=7));
+
+  for(let r=1;r<matrix.length;r++){
+    const fila=matrix[r]||[];
+    const nombre=String(fila[idxNombre]||'').trim();
+    const cel=normCel(fila[idxCelular]);
+    if(!nombre&&!cel){filasVacias++;continue;}
+
+    const flota=_normalizarFlota(fila[idxFlota]||'');
+    const canal=_normalizarCanal(fila[idxCanal]||'');
+    const agenteTexto=String(fila[idxAgente]||'').trim();
+    const agenteUser=_resolverAgentePorNombre(agenteTexto);
+    const agenteId=agenteUser?agenteUser.id:null;
+    const fechaContacto=String(fila[idxFechaContacto]||'').trim()||hoy();
+    const fechaUltimo=String(fila[idxFechaUltimo]||'').trim()||fechaContacto;
+    const etapaNum=_mapEtapaTextoBackup(fila[idxEtapa]);
+    const estadoTexto=String(fila[idxEstado]||'').trim().toLowerCase();
+    const dropout=estadoTexto.includes('no contin');
+    const motivoDropout=String(fila[idxMotivo]||'').trim();
+
+    const combo=cel+'|'+(agenteId||'');
+    const yaExiste=cel.length>=7&&combosVistos.has(combo);
+    if(yaExiste){
+      _cargaPreview.push({nombre,cel,flota,canal,agenteId,agenteCodigoOriginal:agenteId?'':agenteTexto,fecha:fechaContacto,fechaUltimo,etapa:etapaNum,dropout,motivoDropout,isDup:true,_row:r+1});
+      continue;
+    }
+    if(cel.length>=7) combosVistos.add(combo);
+    _cargaPreview.push({nombre,cel,flota,canal,agenteId,agenteCodigoOriginal:agenteId?'':agenteTexto,fecha:fechaContacto,fechaUltimo,etapa:etapaNum,dropout,motivoDropout,isDup:false,_row:r+1});
+  }
+
+  _renderCargaPreview(filasVacias);
 }
 
 function _procesarReporteChat(matrix){
@@ -3262,6 +3350,14 @@ async function importarConductoresMasivo(){
 
   _cargaPreview.forEach((row,i)=>{
     if(row.isDup){omitidos++;return;} // esa misma afiliadora ya lo tiene registrado: no se toca, no se importa
+    const etapa=row.etapa||0;
+    const dropout=row.dropout||false;
+    const motivoDropout=row.motivoDropout||'';
+    const fechaUltimo=row.fechaUltimo||row.fecha;
+    const historial=[{fecha:row.fecha,etapa:0,nota:'Carga masiva',usuario:u?u.nombre:'Supervisor'}];
+    if(fechaUltimo&&fechaUltimo!==row.fecha){
+      historial.push({fecha:fechaUltimo,etapa,nota:dropout?('Baja: '+(motivoDropout||'')).trim():'Carga masiva (estado restaurado)',usuario:u?u.nombre:'Supervisor'});
+    }
     ST.conductores.push({
       id:'cm_'+ts+'_'+i,
       nombre:row.nombre,
@@ -3270,10 +3366,10 @@ async function importarConductoresMasivo(){
       canal:row.canal,
       agenteId:row.agenteId||ST.session,
       fechaContacto:row.fecha,
-      etapa:0,
-      dropout:false,
-      motivoDropout:'',
-      historial:[{fecha:row.fecha,etapa:0,nota:'Carga masiva',usuario:u?u.nombre:'Supervisor'}]
+      etapa,
+      dropout,
+      motivoDropout,
+      historial
     });
     agregados++;
   });
