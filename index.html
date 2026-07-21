@@ -319,6 +319,13 @@ function hideLoad(){
 // Guardar en Firebase Y localStorage
 // IMPORTANTE: antes de escribir, trae la versión más reciente del servidor y fusiona
 // por id, para que el guardado de una afiliadora no borre lo que otra acaba de agregar.
+// Marca un conductor como "modificado en esta sesión" para que, al guardar, SU versión gane
+// sobre la del servidor. Los conductores que no se tocan nunca sobrescriben lo más reciente del servidor.
+function _marcarSucio(id){
+  if(!ST._dirty) ST._dirty=new Set();
+  ST._dirty.add(id);
+}
+
 async function saveBin(){
   saveLocal();
   ST.syncing=true; syncBadge();
@@ -333,16 +340,27 @@ async function saveBin(){
       }
     }catch(e){/* si falla, seguimos solo con lo local */}
 
-    // 2) Fusionar por id: mis cambios locales tienen prioridad en los registros que yo toqué;
-    //    lo que exista en el servidor y no tenga localmente (agregado por otra afiliadora
-    //    mientras yo trabajaba) se conserva; lo que yo eliminé explícitamente se quita.
-    const merged=[...remoteConductores];
-    ST.conductores.forEach(c=>{
-      const idx=merged.findIndex(x=>x.id===c.id);
-      if(idx>=0) merged[idx]=c; else merged.push(c);
-    });
+    // 2) Fusionar por id, SOLO dejando ganar mi versión local en los registros que YO modifiqué
+    //    en esta sesión (marcados en ST._dirty) o que son nuevos (no existen en el servidor).
+    //    Todo lo demás usa siempre la versión más reciente del servidor, para no pisar cambios
+    //    de otras afiliadoras con datos locales desactualizados.
+    const dirty=ST._dirty||new Set();
     const eliminados=ST._eliminados||new Set();
-    ST.conductores=merged.filter(c=>!eliminados.has(c.id));
+    const remoteById={};
+    remoteConductores.forEach(c=>{ remoteById[c.id]=c; });
+    const localById={};
+    ST.conductores.forEach(c=>{ localById[c.id]=c; });
+    const allIds=new Set([...remoteConductores.map(c=>c.id),...ST.conductores.map(c=>c.id)]);
+
+    const merged=[];
+    allIds.forEach(id=>{
+      if(eliminados.has(id)) return; // eliminado explícitamente por mí: no incluir
+      const remoteC=remoteById[id], localC=localById[id];
+      if(!remoteC){ merged.push(localC); return; }        // nuevo, no existe en el servidor todavía
+      if(!localC){ merged.push(remoteC); return; }         // no lo tengo localmente, conservar lo del servidor
+      merged.push(dirty.has(id)?localC:remoteC);           // solo gana lo local si YO lo modifiqué
+    });
+    ST.conductores=merged;
     saveLocal();
 
     // 3) Guardar el resultado fusionado
@@ -354,8 +372,9 @@ async function saveBin(){
     });
     if(!r.ok)throw new Error('HTTP '+r.status);
     ST.syncErr=false;ST.lastSync=new Date();
+    ST._dirty=new Set(); // ya se guardó todo lo pendiente
   }catch(e){
-    ST.syncErr=true;
+    ST.syncErr=true; // mantenemos ST._dirty intacto para reintentar correctamente la próxima vez
   }
   ST.syncing=false; syncBadge();
   backupToSheets(); // best-effort, no bloquea ni afecta el guardado principal
@@ -920,11 +939,13 @@ async function guardarC(){
   }
   const dupCel=celNorm.length>=7?ST.conductores.find(x=>normCel(x.celular)===celNorm):null;
 
+  const nuevoId='c'+Date.now();
   ST.conductores.push({
-    id:'c'+Date.now(),nombre:n,celular:cel,flota:fl,canal:ca,agenteId,
+    id:nuevoId,nombre:n,celular:cel,flota:fl,canal:ca,agenteId,
     fechaContacto:f,etapa:0,dropout:false,motivoDropout:'',
     historial:[{fecha:f,etapa:0,nota:nota||'Primer contacto',usuario:u.nombre}],
   });
+  _marcarSucio(nuevoId);
   await saveBin();closeM();renderSec();
   if(dupCel){
     const ag=ST.users.find(x=>x.id===dupCel.agenteId);
@@ -1028,6 +1049,7 @@ async function avanzar(id){
   c.etapa=nv;c.historial=c.historial||[];
   c.historial.push({fecha:hoy(),etapa:nv,nota:nota||`Avanzó a ${ETAPAS[nv]?.label}`,usuario:u.nombre});
   if(nv===7&&!c.fechaAfiliacion) c.fechaAfiliacion=hoy();
+  _marcarSucio(id);
   await saveBin();closeM();renderSec();
   gMsg(`Conductor avanzado a "${ETAPAS[nv]?.label}".`);
 }
@@ -1064,6 +1086,7 @@ async function guardarDrop(id){
   const u=ST.users.find(x=>x.id===ST.session);
   c.dropout=true;c.motivoDropout=m;c.historial=c.historial||[];
   c.historial.push({fecha:hoy(),etapa:c.etapa,nota:`Baja: ${m}. ${nota}`,usuario:u.nombre});
+  _marcarSucio(id);
   await saveBin();closeM();renderSec();
   gMsg('Conductor marcado como no continúa.');
 }
@@ -1710,6 +1733,7 @@ function editarAgente(id, agenteId){
   const c=ST.conductores.find(x=>x.id===id);
   if(!c)return;
   c.agenteId=agenteId;
+  _marcarSucio(id);
   saveBin();
   gMsg('Afiliadora actualizada.');
 }
@@ -1724,6 +1748,7 @@ function editarUltMov(id, fecha){
     const u=ST.users.find(x=>x.id===ST.session);
     c.historial.push({fecha:fecha,etapa:c.etapa,nota:'Fecha actualizada',usuario:u?u.nombre:'Supervisor'});
   }
+  _marcarSucio(id);
   saveBin();
   gMsg('Último movimiento actualizado: '+fecha);
 }
@@ -1732,6 +1757,7 @@ async function editarFechaAfil(id, fecha){
   const c=ST.conductores.find(x=>x.id===id);
   if(!c||c.etapa!==7)return;
   c.fechaAfiliacion=fecha;
+  _marcarSucio(id);
   await saveBin();
   gMsg('Fecha de afiliación actualizada: '+fecha);
 }
@@ -1960,6 +1986,7 @@ function editarCelular(id, val){
   }
   c.celular=val.trim();
   const dup=norm.length>=7?ST.conductores.find(x=>x.id!==id&&normCel(x.celular)===norm):null;
+  _marcarSucio(id);
   saveBin();
   renderSec();
   if(dup){
@@ -1974,6 +2001,7 @@ function editarCanal(id, sel){
   const c=ST.conductores.find(x=>x.id===id);
   if(!c)return;
   c.canal=sel.value;
+  _marcarSucio(id);
   saveBin();
   gMsg('Canal actualizado.');
 }
@@ -1985,6 +2013,7 @@ function editarFlota(id, select){
   // Registrar en historial
   const u=ST.users.find(x=>x.id===ST.session);
   if(c.historial) c.historial.push({fecha:hoy(),etapa:c.etapa,nota:'Flota cambiada a '+c.flota,usuario:u?u.nombre:'—'});
+  _marcarSucio(id);
   saveBin();
   gMsg('Flota actualizada a '+c.flota);
 }
@@ -2034,6 +2063,7 @@ function toggleCapM(id,num,val){
   const c=ST.conductores.find(x=>x.id===id);
   if(!c)return;
   if(num===1)c.cap1=val;else c.cap2=val;
+  _marcarSucio(id);
   saveBin();
   verC(id); // re-open modal to show updated state
 }
@@ -2043,6 +2073,7 @@ function toggleCap(id, num, val){
   const c=ST.conductores.find(x=>x.id===id);
   if(!c)return;
   if(num===1) c.cap1=val; else c.cap2=val;
+  _marcarSucio(id);
   saveBin();
   // Don't re-render to avoid losing checkbox state
 }
@@ -2925,6 +2956,7 @@ async function guardarEdicionAdmin(id){
   c.canal=canal;
   c.agenteId=agenteId;
   if(fechaAfil) c.fechaAfiliacion=fechaAfil;
+  _marcarSucio(id);
   await saveBin();
   closeM();
   renderSec();
