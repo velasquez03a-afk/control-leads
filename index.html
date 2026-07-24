@@ -219,21 +219,22 @@ try{ firebase.initializeApp(firebaseConfig); }catch(e){ /* SDK no disponible (ej
 
 // Inicia sesión anónima en Firebase Auth y devuelve un token válido para adjuntar a cada request.
 // Esto evita que cualquiera fuera de la app pueda leer/escribir la base directamente por la URL.
-let _authReadyPromise=null;
-function ensureAuth(){
-  if(_authReadyPromise) return _authReadyPromise;
-  _authReadyPromise=(async()=>{
-    try{
-      if(typeof firebase==='undefined'||!firebase.auth) return null;
-      if(!firebase.auth().currentUser){
-        await firebase.auth().signInAnonymously();
-      }
-      return await firebase.auth().currentUser.getIdToken();
-    }catch(e){
-      return null; // sin token: las llamadas caerán a localStorage si las reglas lo requieren
+// IMPORTANTE: solo se cachea el INICIO DE SESIÓN (para no repetirlo), pero el token en sí se pide
+// fresco cada vez con getIdToken() — el SDK lo renueva solo cuando está por vencer, así nunca
+// terminamos usando un token caducado (esto causaba errores 401 tras tener la pestaña abierta un rato).
+let _signInPromise=null;
+async function ensureAuth(){
+  try{
+    if(typeof firebase==='undefined'||!firebase.auth) return null;
+    if(!firebase.auth().currentUser){
+      if(!_signInPromise) _signInPromise=firebase.auth().signInAnonymously();
+      await _signInPromise;
     }
-  })();
-  return _authReadyPromise;
+    return await firebase.auth().currentUser.getIdToken();
+  }catch(e){
+    _signInPromise=null; // si falló el login, permitir reintentar la próxima vez
+    return null; // sin token: las llamadas caerán a localStorage si las reglas lo requieren
+  }
 }
 // Arma la URL de Firebase con el token de auth adjunto (si se pudo obtener)
 async function fbUrl(path){
