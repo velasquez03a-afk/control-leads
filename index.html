@@ -401,6 +401,30 @@ async function loadBin(){
 }
 
 // Iniciar: carga local primero (instantáneo) luego Firebase
+// Marca automáticamente como "Sin respuesta" a los conductores activos que llevan 15+ días
+// SIN NINGÚN movimiento (fecha de último movimiento), para que los reportes reflejen actividad real.
+// No toca a los que ya están de baja ni a los afiliados (etapa 7).
+function _autoMarcarInactivos(){
+  const hoyStr=hoy();
+  const hoyDate=new Date(hoyStr+'T12:00:00');
+  let cambios=0;
+  ST.conductores.forEach(c=>{
+    if(c.dropout||c.etapa===7) return;
+    const uf=ultimaFecha(c);
+    if(!uf) return;
+    const dias=Math.floor((hoyDate-new Date(uf+'T12:00:00'))/86400000);
+    if(dias>=15){
+      c.dropout=true;
+      c.motivoDropout='Sin respuesta';
+      c.historial=c.historial||[];
+      c.historial.push({fecha:hoyStr,etapa:c.etapa,nota:'Baja automática: '+dias+' días sin movimiento (marcado como "Sin respuesta")',usuario:'Sistema'});
+      _marcarSucio(c.id);
+      cambios++;
+    }
+  });
+  return cambios;
+}
+
 async function initBin(){
   loadLocal();
   hideLoad();
@@ -427,6 +451,9 @@ async function initBin(){
   }catch(e){
     ST.syncErr=true;
   }
+  // Marcar automáticamente conductores inactivos hace 15+ días (sin afectar nada más)
+  const _cambiosInactivos=_autoMarcarInactivos();
+  if(_cambiosInactivos>0) await saveBin();
   syncBadge();
   renderSec();
   // Auto-refresh cada 30s para ver cambios de otras usuarias
@@ -1130,7 +1157,7 @@ function renderDiario(isA,isMkt){
       const s=calcStats(arr);
       return{chats:s.chats,activo:s.activo,noActivo:s.noActivo,
              califica:s.califica,noCalifica:s.noCalif,
-             bolsa:s.bolsa,anteced:s.anteced,desaprobK:s.desaprobK,
+             bolsa:s.bolsa,enProceso:s.enProceso,anteced:s.anteced,desaprobK:s.desaprobK,
              evPsic:s.evPsic,desaprobM:s.desaprobM,
              afiliado:s.afiliado,noAfil:s.noAfil};
     };
@@ -1162,6 +1189,7 @@ function renderDiario(isA,isMkt){
           +celda(cs.noActivo,false,'#633806')
           +celda(cs.califica,false,'#166534')
           +celda(cs.noCalifica,false,'#A32D2D')
+          +celda(cs.enProceso,false,'#0891B2')
           +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;font-size:11px;background:#EFF6FF;font-weight:600">'+cs.bolsa+'</td>'
           +celda(cs.anteced,false,'#5B21B6')
           +celda(cs.desaprobK||0,false,'#A32D2D')
@@ -1180,6 +1208,7 @@ function renderDiario(isA,isMkt){
           +'<td style="padding:5px 4px;border:0.5px solid #CBD5E1;'+totHL+';font-style:italic" colspan="2">Total '+canal+'</td>'
           +celda(ct.chats,true)+celda(ct.activo,true,'#185FA5')+celda(ct.noActivo,true,'#633806')
           +celda(ct.califica,true,'#166534')+celda(ct.noCalifica,true,'#A32D2D')
+          +celda(ct.enProceso,true,'#0891B2')
           +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;font-weight:700;background:#EFF6FF">'+ct.bolsa+'</td>'
           +celda(ct.anteced,true,'#5B21B6')+celda(ct.desaprobK||0,true,'#A32D2D')
           +celda(ct.evPsic,true,'#0869C8')+celda(ct.desaprobM||0,true,'#A32D2D')
@@ -1192,6 +1221,7 @@ function renderDiario(isA,isMkt){
         +'<td style="padding:6px 8px;border:0.5px solid #CBD5E1;background:#BFDBFE;font-weight:700" colspan="2">TOTAL '+flota.toUpperCase()+'</td>'
         +celda(grand.chats,true)+celda(grand.activo,true,'#185FA5')+celda(grand.noActivo,true,'#633806')
         +celda(grand.califica,true,'#166534')+celda(grand.noCalifica,true,'#A32D2D')
+        +celda(grand.enProceso,true,'#0891B2')
         +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;background:#BFDBFE;font-weight:700">'+grand.bolsa+'</td>'
         +celda(grand.anteced,true,'#5B21B6')+celda(grand.desaprobK||0,true,'#A32D2D')
         +celda(grand.evPsic,true,'#0869C8')+celda(grand.desaprobM||0,true,'#A32D2D')
@@ -1206,6 +1236,7 @@ function renderDiario(isA,isMkt){
         +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;'+embHL+'">'+pct(grand.noActivo,grand.chats)+'</td>'
         +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;'+embHL+'">'+pct(grand.califica,grand.chats)+'</td>'
         +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;'+embHL+'">'+pct(grand.noCalifica,grand.chats)+'</td>'
+        +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;'+embHL+'">'+pct(grand.enProceso,grand.chats)+'</td>'
         +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;'+embHL+'">'+pct(grand.bolsa,grand.chats)+'</td>'
         +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;'+embHL+'">'+pct(grand.anteced,grand.chats)+'</td>'
         +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;'+embHL+'">'+pct(grand.desaprobK||0,grand.chats)+'</td>'
@@ -1230,6 +1261,7 @@ function renderDiario(isA,isMkt){
         +'<th style="'+hdSt+'">No activos</th>'
         +'<th style="'+hdSt+'">Califica</th>'
         +'<th style="'+hdSt+'">No califica</th>'
+        +'<th style="'+hdSt+'">En<br>proceso</th>'
         +'<th style="'+hdSt+'">Bolsa</th>'
         +'<th style="'+hdSt+'">Antecedentes</th>'
         +'<th style="'+hdSt+'">Desapro-<br>bado</th>'
@@ -1331,7 +1363,7 @@ function renderDiario(isA,isMkt){
     const nuevosDia=mis.filter(c=>c.fechaContacto===fDiaSv);
     const movDia=mis.filter(c=>c.fechaContacto!==fDiaSv&&(c.historial||[]).some(x=>x.fecha===fDiaSv));
     const todosAg=[...nuevosDia,...movDia];
-    const stAg=(arr)=>{const s=calcStats(arr);return{chats:s.chats,activo:s.activo,noActivo:s.noActivo,califica:s.califica,noCalif:s.noCalif,bolsa:s.bolsa,anteced:s.anteced,desaprobK:s.desaprobK,evPsic:s.evPsic,desaprobM:s.desaprobM,capacit:s.capacit,desaprobC:s.desaprobC,afiliado:s.afiliado,noAfil:s.noAfil};};
+    const stAg=(arr)=>{const s=calcStats(arr);return{chats:s.chats,activo:s.activo,noActivo:s.noActivo,califica:s.califica,noCalif:s.noCalif,bolsa:s.bolsa,enProceso:s.enProceso,anteced:s.anteced,desaprobK:s.desaprobK,evPsic:s.evPsic,desaprobM:s.desaprobM,capacit:s.capacit,desaprobC:s.desaprobC,afiliado:s.afiliado,noAfil:s.noAfil};};
     const canalTots={};
     CANALES.forEach(canal=>{canalTots[canal]=stAg(todosAg.filter(x=>x.canal===canal));});
     const grand=stAg(todosAg);
@@ -1345,6 +1377,7 @@ function renderDiario(isA,isMkt){
           +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;font-size:11px">'+canal+'</td>'
           +celda(cs.chats,true)+celda(cs.activo,false,'#185FA5')+celda(cs.noActivo,false,'#633806')
           +celda(cs.califica,false,'#166534')+celda(cs.noCalif,false,'#A32D2D')
+          +celda(cs.enProceso,false,'#0891B2')
           +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;font-size:11px;background:#EFF6FF;font-weight:600">'+cs.bolsa+'</td>'
           +celda(cs.anteced,false,'#5B21B6')+celda(cs.desaprobK,false,'#A32D2D')
           +celda(cs.evPsic,false,'#0869C8')+celda(cs.desaprobM,false,'#A32D2D')
@@ -1356,6 +1389,7 @@ function renderDiario(isA,isMkt){
     rows+='<tr style="background:#BFDBFE;font-weight:700"><td colspan="2" style="padding:6px 8px;border:0.5px solid #CBD5E1">TOTAL '+ag.nombre.toUpperCase()+'</td>'
       +celda(grand.chats,true)+celda(grand.activo,true,'#185FA5')+celda(grand.noActivo,true,'#633806')
       +celda(grand.califica,true,'#166534')+celda(grand.noCalif,true,'#A32D2D')
+      +celda(grand.enProceso,true,'#0891B2')
       +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;background:#BFDBFE;font-weight:700">'+grand.bolsa+'</td>'
       +celda(grand.anteced,true,'#5B21B6')+celda(grand.desaprobK,true,'#A32D2D')
       +celda(grand.evPsic,true,'#0869C8')+celda(grand.desaprobM,true,'#A32D2D')
@@ -1364,7 +1398,7 @@ function renderDiario(isA,isMkt){
       +'</tr>';
     rows+='<tr style="background:#FEF9C3;font-weight:700;color:#713F12"><td colspan="2" style="padding:5px 4px;border:0.5px solid #CBD5E1">EMBUDO %</td>'
       +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;background:#FEF9C3;font-weight:700">100%</td>'
-      +['activo','noActivo','califica','noCalif','bolsa','anteced','desaprobK','evPsic','desaprobM','capacit','desaprobC','afiliado','noAfil'].map(k=>'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;background:#FEF9C3;font-weight:700">'+pct(grand[k]||0,grand.chats)+'</td>').join('')
+      +['activo','noActivo','califica','noCalif','enProceso','bolsa','anteced','desaprobK','evPsic','desaprobM','capacit','desaprobC','afiliado','noAfil'].map(k=>'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;background:#FEF9C3;font-weight:700">'+pct(grand[k]||0,grand.chats)+'</td>').join('')
       +'</tr>';
     const headerDiv='<div style="margin-bottom:1rem;border-radius:var(--radius);overflow:hidden;border:1px solid var(--border);box-shadow:var(--shadow)">'
       +'<div style="background:#1e3a5f;color:#fff;padding:10px 14px;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:space-between">'
@@ -1384,7 +1418,7 @@ function renderDiario(isA,isMkt){
       +'<thead><tr>'
       +'<th style="'+hdSt+';width:90px">Flota</th><th style="'+hdSt+';width:110px">Canal</th>'
       +'<th style="'+hdSt+'">Chats</th><th style="'+hdSt+'">Activos</th><th style="'+hdSt+'">No<br>activos</th>'
-      +'<th style="'+hdSt+'">Califica</th><th style="'+hdSt+'">No<br>califica</th><th style="'+hdSt+'">Bolsa</th>'
+      +'<th style="'+hdSt+'">Califica</th><th style="'+hdSt+'">No<br>califica</th><th style="'+hdSt+'">En<br>proceso</th><th style="'+hdSt+'">Bolsa</th>'
       +'<th style="'+hdSt+'">Anteced.</th><th style="'+hdSt+'">Desapro.<br>Psi.</th>'
       +'<th style="'+hdSt+'">Ev.Psic.</th><th style="'+hdSt+'">Desapro.<br>Ant.</th>'
       +'<th style="'+hdSt+'">Capac.</th><th style="'+hdSt+'">Desapro.<br>Cap.</th>'
@@ -1467,7 +1501,10 @@ function calcStats(arr){
   const noActivo  = arr.filter(c=>!c.dropout&&c.etapa===0).length;
   const califica  = arr.filter(c=>!c.dropout&&c.etapa>=1).length;
   const noCalif   = arr.filter(c=>c.dropout).length;
-  const bolsa     = arr.filter(c=>!c.dropout&&c.etapa>=1&&c.etapa<=6).length;
+  // "En Bolsa": SOLO Antecedentes, Evaluación Psicológica o Capacitación (etapas 4-6).
+  const bolsa     = arr.filter(c=>!c.dropout&&c.etapa>=4&&c.etapa<=6).length;
+  // "En proceso": el resto de conductores activos que aún no llegan a Bolsa (etapas 0-3).
+  const enProceso = arr.filter(c=>!c.dropout&&c.etapa>=0&&c.etapa<=3).length;
   const anteced   = arr.filter(c=>!c.dropout&&c.etapa===4).length;
   const desaprobK = arr.filter(c=>c.dropout&&c.etapa===5).length;
   const evPsic    = arr.filter(c=>!c.dropout&&c.etapa===5).length;
@@ -1476,7 +1513,7 @@ function calcStats(arr){
   const desaprobC = arr.filter(c=>c.dropout&&c.etapa===6).length;
   const afiliado  = arr.filter(c=>!c.dropout&&c.etapa===7).length;
   const noAfil    = arr.filter(c=>c.dropout).length;
-  return{chats,activo,noActivo,califica,noCalif,bolsa,anteced,desaprobK,evPsic,desaprobM,capacit,desaprobC,afiliado,noAfil,
+  return{chats,activo,noActivo,califica,noCalif,bolsa,enProceso,anteced,desaprobK,evPsic,desaprobM,capacit,desaprobC,afiliado,noAfil,
     noCalifica:noCalif,noAfiliado:noAfil};
 }
 
@@ -1490,6 +1527,7 @@ function statsCanal(cs){
     nr:        s.califica,
     nd:        s.noCalif,
     pre:       s.bolsa,
+    proc:      s.enProceso,
     ant:       s.anteced,
     desaprobK: s.desaprobK,
     psi:       s.evPsic,
@@ -1505,16 +1543,16 @@ function tablaExcelFlota(flota, semanas_data, metaTotal){
   // semanas_data: array de {sem, label, cs}
   const fcls=flotaC[flota]||'';
   const semTots=semanas_data.map(s=>{
-    const tot={chats:0,ca:0,cn:0,nr:0,nd:0,pre:0,ant:0,desaprobK:0,psi:0,desaprobM:0,cap:0,desaprobC:0,afil:0,noAfil:0};
+    const tot={chats:0,ca:0,cn:0,nr:0,nd:0,pre:0,proc:0,ant:0,desaprobK:0,psi:0,desaprobM:0,cap:0,desaprobC:0,afil:0,noAfil:0};
     CANALES.forEach(c=>{
       const st=statsCanal(s.cs.filter(x=>x.canal===c));
       Object.keys(tot).forEach(k=>tot[k]+=st[k]);
     });
     return tot;
   });
-  const grandTot={chats:0,ca:0,cn:0,nr:0,nd:0,pre:0,ant:0,desaprobK:0,psi:0,desaprobM:0,cap:0,desaprobC:0,afil:0,noAfil:0};
+  const grandTot={chats:0,ca:0,cn:0,nr:0,nd:0,pre:0,proc:0,ant:0,desaprobK:0,psi:0,desaprobM:0,cap:0,desaprobC:0,afil:0,noAfil:0};
   const canalTots={};
-  CANALES.forEach(c=>{canalTots[c]={chats:0,ca:0,cn:0,nr:0,nd:0,pre:0,ant:0,desaprobK:0,psi:0,desaprobM:0,cap:0,desaprobC:0,afil:0,noAfil:0};});
+  CANALES.forEach(c=>{canalTots[c]={chats:0,ca:0,cn:0,nr:0,nd:0,pre:0,proc:0,ant:0,desaprobK:0,psi:0,desaprobM:0,cap:0,desaprobC:0,afil:0,noAfil:0};});
   semanas_data.forEach(s=>{
     CANALES.forEach(c=>{
       const st=statsCanal(s.cs.filter(x=>x.canal===c));
@@ -1546,6 +1584,7 @@ function tablaExcelFlota(flota, semanas_data, metaTotal){
         +'<td style="'+cellStyle+';color:#633806">'+(cst.cn||0)+'</td>'
         +'<td style="'+cellStyle+';color:#166534">'+(cst.nr||0)+'</td>'
         +'<td style="'+cellStyle+';color:#A32D2D">'+(cst.nd||0)+'</td>'
+        +'<td style="'+cellStyle+';color:#0891B2">'+(cst.proc||0)+'</td>'
         +'<td style="'+cellStyle+';font-weight:600;background:#EFF6FF">'+(cst.pre||0)+'</td>'
         +'<td style="'+cellStyle+';color:#5B21B6">'+(cst.ant||0)+'</td>'
         +'<td style="'+cellStyle+';color:#A32D2D">'+(cst.desaprobK||0)+'</td>'
@@ -1572,7 +1611,7 @@ function tablaExcelFlota(flota, semanas_data, metaTotal){
       <td style="${cellStyle};${totHL};font-style:italic" colspan="2">Total ${canal}</td>
       <td style="${cellStyle};${totHL}">${ct.chats||0}</td><td style="${cellStyle};${totHL};color:#185FA5">${ct.ca||0}</td>
       <td style="${cellStyle};${totHL};color:#633806">${ct.cn||0}</td><td style="${cellStyle};${totHL};color:#166534">${ct.nr||0}</td>
-      <td style="${cellStyle};${totHL};color:#A32D2D">${ct.nd||0}</td><td style="${cellStyle};${totHL};background:#EFF6FF">${ct.pre||0}</td>
+      <td style="${cellStyle};${totHL};color:#A32D2D">${ct.nd||0}</td><td style="${cellStyle};${totHL};color:#0891B2">${ct.proc||0}</td><td style="${cellStyle};${totHL};background:#EFF6FF">${ct.pre||0}</td>
       <td style="${cellStyle};${totHL};color:#5B21B6">${ct.ant||0}</td>
       <td style="${cellStyle};${totHL};color:#A32D2D">${ct.desaprobK||0}</td>
       <td style="${cellStyle};${totHL};color:#0869C8">${ct.psi||0}</td>
@@ -1592,6 +1631,7 @@ function tablaExcelFlota(flota, semanas_data, metaTotal){
     <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#633806">${grandTot.cn||0}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#166534">${grandTot.nr||0}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#A32D2D">${grandTot.nd||0}</td>
+    <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#0891B2">${grandTot.proc||0}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700">${grandTot.pre}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#5B21B6">${grandTot.ant||0}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#A32D2D">${grandTot.desaprobK||0}</td>
@@ -1613,6 +1653,7 @@ function tablaExcelFlota(flota, semanas_data, metaTotal){
     <td style="${cellStyle};${embudoHL}">${pct(grandTot.cn||0,grandTot.chats)}</td>
     <td style="${cellStyle};${embudoHL}">${pct(grandTot.nr||0,grandTot.chats)}</td>
     <td style="${cellStyle};${embudoHL}">${pct(grandTot.nd||0,grandTot.chats)}</td>
+    <td style="${cellStyle};${embudoHL}">${pct(grandTot.proc||0,grandTot.chats)}</td>
     <td style="${cellStyle};${embudoHL}">${pct(grandTot.pre||0,grandTot.chats)}</td>
     <td style="${cellStyle};${embudoHL}">${pct(grandTot.ant||0,grandTot.chats)}</td>
     <td style="${cellStyle};${embudoHL}">${pct(grandTot.desaprobK||0,grandTot.chats)}</td>
@@ -1639,6 +1680,7 @@ function tablaExcelFlota(flota, semanas_data, metaTotal){
             <th style="${hdStyle}">No<br>activos</th>
             <th style="${hdStyle}">Califica</th>
             <th style="${hdStyle}">No<br>califica</th>
+            <th style="${hdStyle}">En<br>proceso</th>
             <th style="${hdStyle}">Bolsa</th>
             <th style="${hdStyle}">Antece-<br>dentes</th>
             <th style="${hdStyle}">Desapro-<br>bado</th>
@@ -2670,6 +2712,7 @@ function renderAfiliadoras(){
       +tdN(enR.length,'#374151',true)
       +tdN(st.activo,'#185FA5',false)
       +tdN(st.noCalif,'#DC2626',false)
+      +tdN(st.enProceso,'#0891B2',false)
       +tdN(st.bolsa,'#5B21B6',false)
       +tdN(afilEnR,afilEnR>0?'#16A34A':'#374151',true)
       +tdN(meta,'#6B7280',false)
@@ -2691,6 +2734,7 @@ function renderAfiliadoras(){
     +tdN(todosEnR.length,'#374151',true)
     +tdN(gStats.activo,'#185FA5',true)
     +tdN(gStats.noCalif,'#DC2626',true)
+    +tdN(gStats.enProceso,'#0891B2',true)
     +tdN(gStats.bolsa,'#5B21B6',true)
     +tdN(gStats.afiliado,gStats.afiliado>0?'#16A34A':'#374151',true)
     +tdN(meta*agentes.length,'#6B7280',true)
@@ -2723,6 +2767,7 @@ function renderAfiliadoras(){
           +celdaD(cs.noActivo,'#633806')
           +celdaD(cs.califica,'#166534')
           +celdaD(cs.noCalif,'#DC2626')
+          +celdaD(cs.enProceso,'#0891B2')
           +celdaD(cs.bolsa,'#5B21B6')
           +celdaD(cs.anteced,'#5B21B6')
           +celdaD(cs.desaprobK,'#A32D2D')
@@ -2741,6 +2786,7 @@ function renderAfiliadoras(){
         +celdaD(stFlota.noActivo,'#633806',true)
         +celdaD(stFlota.califica,'#166534',true)
         +celdaD(stFlota.noCalif,'#DC2626',true)
+        +celdaD(stFlota.enProceso,'#0891B2',true)
         +celdaD(stFlota.bolsa,'#5B21B6',true)
         +celdaD(stFlota.anteced,'#5B21B6',true)
         +celdaD(stFlota.desaprobK,'#A32D2D',true)
@@ -2755,6 +2801,7 @@ function renderAfiliadoras(){
     rows+='<tr style="background:#BFDBFE;font-weight:700"><td colspan="2" style="padding:6px 8px;border:0.5px solid #CBD5E1">TOTAL</td>'
       +celdaD(stAll.chats,null,true)+celdaD(stAll.activo,'#185FA5',true)+celdaD(stAll.noActivo,'#633806',true)
       +celdaD(stAll.califica,'#166534',true)+celdaD(stAll.noCalif,'#DC2626',true)
+      +celdaD(stAll.enProceso,'#0891B2',true)
       +celdaD(stAll.bolsa,'#5B21B6',true)
       +celdaD(stAll.anteced,'#5B21B6',true)+celdaD(stAll.desaprobK,'#A32D2D',true)
       +celdaD(stAll.evPsic,'#0869C8',true)+celdaD(stAll.desaprobM,'#A32D2D',true)
@@ -2773,6 +2820,7 @@ function renderAfiliadoras(){
       +'<th style="'+hdS+';width:90px">Flota</th><th style="'+hdS+'">Canal</th>'
       +'<th style="'+hdS+'">Chats</th><th style="'+hdS+'">Activos</th><th style="'+hdS+'">No activos</th>'
       +'<th style="'+hdS+'">Califica</th><th style="'+hdS+'">No califica</th>'
+      +'<th style="'+hdS+'">En proceso</th>'
       +'<th style="'+hdS+'">Bolsa</th>'
       +'<th style="'+hdS+'">Anteced.</th><th style="'+hdS+'">Desap.<br>Psi.</th>'
       +'<th style="'+hdS+'">Ev.Psic.</th><th style="'+hdS+'">Desap.<br>Ant.</th>'
@@ -2821,6 +2869,7 @@ function renderAfiliadoras(){
     +'<th style="'+hdS+';text-align:left">Afiliadora</th>'
     +'<th style="'+hdS+'">Nuevos</th><th style="'+hdS+'">Total<br>actividad</th>'
     +'<th style="'+hdS+'">Activos</th><th style="'+hdS+'">Bajas</th>'
+    +'<th style="'+hdS+'">En proceso</th>'
     +'<th style="'+hdS+'">En Bolsa</th>'
     +'<th style="'+hdS+'">Afiliados</th><th style="'+hdS+'">Meta</th>'
     +'<th style="'+hdS+';min-width:160px">Cumplimiento</th>'
