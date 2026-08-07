@@ -194,6 +194,7 @@ let _mt=null; // timeout handle para auto-ocultar mensajes (gMsg)
 let ST={
   users:DEFAULT_USERS.map(u=>({...u})),
   conductores:[],
+  inversiones:{}, // {"YYYY-MM":{Aeropuerto:0,Aerolíneas:0,Ciudad:0,Plazas:0}} — inversión mensual por flota
   session:null, tab:'conductores',
   msg:null, msgType:'ok',
   selUser:null,
@@ -288,7 +289,7 @@ async function backupToSheetsManual(){
 function saveLocal(){
   try{
     localStorage.setItem(LS_KEY,JSON.stringify({
-      users:ST.users,conductores:ST.conductores,metas:ST.metas,savedAt:new Date().toISOString()
+      users:ST.users,conductores:ST.conductores,metas:ST.metas,inversiones:ST.inversiones,savedAt:new Date().toISOString()
     }));
   }catch(e){}
 }
@@ -299,6 +300,7 @@ function loadLocal(){
     if(d.users&&d.users.length) ST.users=d.users;
     if(d.conductores) ST.conductores=d.conductores;
     if(d.metas) ST.metas=d.metas;
+    if(d.inversiones) ST.inversiones=d.inversiones;
     if(d.savedAt) ST.lastSync=new Date(d.savedAt);
   }catch(e){}
 }
@@ -365,7 +367,7 @@ async function saveBin(){
     saveLocal();
 
     // 3) Guardar el resultado fusionado
-    const data={users:ST.users,conductores:ST.conductores,metas:ST.metas||{}};
+    const data={users:ST.users,conductores:ST.conductores,metas:ST.metas||{},inversiones:ST.inversiones||{}};
     const r=await fetch(await fbUrl(FB_PATH),{
       method:'PUT',
       headers:{'Content-Type':'application/json','Accept':'application/json'},
@@ -391,6 +393,7 @@ async function loadBin(){
       ST.users=d.users;
       ST.conductores=d.conductores||[];
       ST.metas=d.metas||ST.metas;
+          ST.inversiones=d.inversiones||ST.inversiones;
       saveLocal();
       ST.lastSync=new Date();ST.syncErr=false;
     }
@@ -440,6 +443,7 @@ async function initBin(){
           ST.users=(d.users&&d.users.length)?d.users:ST.users;
           ST.conductores=d.conductores||[];
           ST.metas=d.metas||ST.metas;
+          ST.inversiones=d.inversiones||ST.inversiones;
           saveLocal();
         }
         ST.lastSync=new Date();ST.syncErr=false;
@@ -471,6 +475,7 @@ async function initBin(){
           ST.users=(d.users&&d.users.length)?d.users:ST.users;
           ST.conductores=d.conductores;
           ST.metas=d.metas||ST.metas;
+          ST.inversiones=d.inversiones||ST.inversiones;
           saveLocal();
           ST.lastSync=new Date();ST.syncErr=false;
           syncBadge();
@@ -568,9 +573,9 @@ function render(){
   const isA=u&&u.role==='admin';
   const isMkt=u&&u.role==='marketing';
   const tabs=isA
-    ?[['conductores','ti-users','Afiliados'],['diario','ti-calendar','Hoy'],['afiliadoras','ti-users-group','Afiliadoras'],['supervision','ti-eye','Supervisión'],['mensual','ti-trending-up','Sem/Mes'],['usuarios','ti-settings','Usuarios']]
+    ?[['conductores','ti-users','Afiliados'],['diario','ti-calendar','Hoy'],['afiliadoras','ti-users-group','Afiliadoras'],['supervision','ti-eye','Supervisión'],['mensual','ti-trending-up','Sem/Mes'],['marketing','ti-report-money','Marketing'],['usuarios','ti-settings','Usuarios']]
     :isMkt
-    ?[['conductores','ti-users','Afiliados'],['diario','ti-calendar','Hoy'],['mensual','ti-trending-up','Sem/Mes']]
+    ?[['conductores','ti-users','Afiliados'],['diario','ti-calendar','Hoy'],['mensual','ti-trending-up','Sem/Mes'],['marketing','ti-report-money','Marketing']]
     :[['conductores','ti-users','Afiliados'],['diario','ti-calendar','Mi día'],['miresumen','ti-chart-pie','Mi resumen']];
   root.innerHTML=`<div class="app">
     <div class="topbar">
@@ -617,6 +622,7 @@ function renderSec(){
   else if(ST.tab==='afiliadoras'&&isA)el.innerHTML=renderAfiliadoras();
   else if(ST.tab==='supervision'&&isA)el.innerHTML=renderSupervisionMerged();
   else if(ST.tab==='mensual'&&(isA||isMkt))el.innerHTML=renderMensual();
+  else if(ST.tab==='marketing'&&(isA||isMkt))el.innerHTML=renderInversion(isA);
   else if(ST.tab==='usuarios'&&isA)el.innerHTML=renderUsuarios();
 }
 function setTab(t){ST.tab=t;renderSec();}
@@ -1804,6 +1810,95 @@ async function editarFechaAfil(id, fecha){
   await saveBin();
   gMsg('Fecha de afiliación actualizada: '+fecha);
 }
+
+// ── INVERSIÓN MENSUAL POR FLOTA (solo Marketing) ──────────
+// El Supervisor carga el monto invertido cada mes por flota; Marketing solo lo visualiza.
+function renderInversion(isA){
+  const hoyD=new Date();
+  const mesSel=document.getElementById('inv-mes')?.value||(MESES[hoyD.getMonth()]+' '+hoyD.getFullYear());
+  const [nombreMes,añoMes]=mesSel.split(' ');
+  const mesIdx=MESES.indexOf(nombreMes);
+  const key=añoMes+'-'+String(mesIdx+1).padStart(2,'0');
+
+  // Meses disponibles: los ya registrados + los últimos 12 meses hacia atrás desde hoy
+  const mesesSet=new Set(Object.keys(ST.inversiones||{}));
+  for(let i=0;i<12;i++){
+    const d=new Date(hoyD.getFullYear(),hoyD.getMonth()-i,1);
+    mesesSet.add(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'));
+  }
+  const mesesOrdenados=[...mesesSet].sort().reverse();
+  const labelDeKey=(k)=>{const [a,m]=k.split('-');return MESES[parseInt(m)-1]+' '+a;};
+
+  const datos=(ST.inversiones&&ST.inversiones[key])||{};
+  const totalMes=FLOTAS.reduce((s,f)=>s+(Number(datos[f])||0),0);
+
+  // Histórico para el mini-resumen de abajo
+  const historico=mesesOrdenados.filter(k=>ST.inversiones&&ST.inversiones[k]&&FLOTAS.some(f=>ST.inversiones[k][f]))
+    .map(k=>({key:k,label:labelDeKey(k),total:FLOTAS.reduce((s,f)=>s+(Number(ST.inversiones[k][f])||0),0)}));
+
+  return `<div>
+    <div class="section-hdr" style="margin-bottom:14px">
+      <div style="font-size:15px;font-weight:700"><i class="ti ti-report-money" style="color:#B45309;margin-right:6px"></i>Inversión mensual por flota</div>
+    </div>
+
+    <div class="card" style="padding:16px;margin-bottom:16px">
+      <div class="fg" style="max-width:260px;margin-bottom:16px">
+        <label>Mes</label>
+        <select id="inv-mes" onchange="renderSec()">
+          ${mesesOrdenados.map(k=>`<option value="${labelDeKey(k)}" ${k===key?'selected':''}>${labelDeKey(k)}</option>`).join('')}
+        </select>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:16px">
+        ${FLOTAS.map(f=>`
+          <div class="fg" style="margin:0">
+            <label><span class="stag ${flotaC[f]}" style="margin-right:4px">${f}</span></label>
+            ${isA
+              ? `<input type="number" min="0" step="0.01" id="inv-${f}" value="${datos[f]||''}" placeholder="0.00" style="text-align:right">`
+              : `<div style="padding:10px 12px;border:1px solid var(--border2);border-radius:var(--radius-sm);background:var(--bg3);font-weight:600;text-align:right">S/ ${(Number(datos[f])||0).toLocaleString('es-PE',{minimumFractionDigits:2})}</div>`
+            }
+          </div>`).join('')}
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding-top:12px;border-top:1px solid var(--border)">
+        <div style="font-size:14px"><strong>Total del mes:</strong> <span style="font-weight:700;color:#B45309">S/ ${totalMes.toLocaleString('es-PE',{minimumFractionDigits:2})}</span></div>
+        ${isA?`<button class="btn btn-p btn-sm" onclick="guardarInversion('${key}')"><i class="ti ti-check"></i> Guardar</button>`:''}
+      </div>
+    </div>
+
+    ${historico.length?`
+    <div class="card" style="padding:0;overflow:hidden">
+      <div style="padding:10px 14px;font-size:13px;font-weight:700;background:var(--bg3);border-bottom:1px solid var(--border)">Histórico</div>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+        <thead><tr style="background:var(--bg3)">
+          <th style="padding:6px 10px;text-align:left;font-size:11px;border-bottom:1px solid var(--border)">Mes</th>
+          ${FLOTAS.map(f=>`<th style="padding:6px 10px;font-size:11px;border-bottom:1px solid var(--border)">${f}</th>`).join('')}
+          <th style="padding:6px 10px;font-size:11px;border-bottom:1px solid var(--border)">Total</th>
+        </tr></thead>
+        <tbody>${historico.map(h=>`<tr>
+          <td style="padding:5px 10px;font-size:12px;font-weight:600;border-bottom:0.5px solid var(--border)">${h.label}</td>
+          ${FLOTAS.map(f=>`<td style="padding:5px 10px;font-size:12px;text-align:center;border-bottom:0.5px solid var(--border)">S/ ${(Number(ST.inversiones[h.key][f])||0).toLocaleString('es-PE',{minimumFractionDigits:2})}</td>`).join('')}
+          <td style="padding:5px 10px;font-size:12px;text-align:center;font-weight:700;border-bottom:0.5px solid var(--border);color:#B45309">S/ ${h.total.toLocaleString('es-PE',{minimumFractionDigits:2})}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    </div>`:''}
+  </div>`;
+}
+
+async function guardarInversion(key){
+  const u=ST.users.find(x=>x.id===ST.session);
+  if(!u||u.role!=='admin')return; // solo Supervisor puede guardar
+  ST.inversiones=ST.inversiones||{};
+  ST.inversiones[key]={};
+  FLOTAS.forEach(f=>{
+    const v=parseFloat(document.getElementById('inv-'+f)?.value);
+    ST.inversiones[key][f]=isNaN(v)?0:v;
+  });
+  await saveBin();
+  renderSec();
+  gMsg('✅ Inversión guardada.');
+}
+
 
 function renderMensual(){
   const mesSelEl=document.getElementById('rm-mes');
