@@ -1930,6 +1930,7 @@ function procesarArchivoFinanzas(file){
         pagoTipoDoc:esTercero?'DNI':String(f[col('TIPO DOCUMENTO')]||'').trim(),
         pagoNumDoc:esTercero?String(f[col('DNI DEL TERCERO')]||'').trim():String(f[col('NUMDOCUMENTO')]||'').trim(),
         capacitacion:String(f[col('CAPACITADO EL:')]||'').trim(),
+        codigoUnidad:String(f[col('N MOVIL')]||'').trim(),
       });
     }
     _reporteFinanzasPreview=filas;
@@ -1967,10 +1968,10 @@ function descargarReporteFinanzas(){
   const aoa=[];
   aoa[0]=[]; aoa[0][7]='NUEVOS INGRESOS '+rangoTxt;
   aoa[1]=[];
-  aoa[2]=['','MEMBRESIA AEROPUERTO','','','CAPACITACION','OPERACION','TURNO','APELLIDOS','','NOMBRES','DOCUMENTO','N° DOCUMENTO','PLACA','CATEGORIA','TITULAR A PAGAR','APELLIDOS Y NOMBRES','','DOCUMENTO','N° DOCUMENTO','RUC','USUARIO','CLAVE','BANCO','CUENTA BANCARIA','CELULAR','SERVICIO CONTABLE','DIRECCIÓN','DISTRITO','CORREO','OBSERVACIONES'];
+  aoa[2]=['','MEMBRESIA AEROPUERTO','','CODIGO UNIDAD','CAPACITACION','OPERACION','TURNO','APELLIDOS','','NOMBRES','DOCUMENTO','N° DOCUMENTO','PLACA','CATEGORIA','TITULAR A PAGAR','APELLIDOS Y NOMBRES','','DOCUMENTO','N° DOCUMENTO','RUC','USUARIO','CLAVE','BANCO','CUENTA BANCARIA','CELULAR','SERVICIO CONTABLE','DIRECCIÓN','DISTRITO','CORREO','OBSERVACIONES'];
 
   filas.forEach(f=>{
-    aoa.push(['','','','',f.capacitacion,f.flota,'',f.paterno,f.materno,f.nombres,f.tipoDoc,f.numDoc,f.placa,f.categoria,f.titular,
+    aoa.push(['','','',f.codigoUnidad,f.capacitacion,f.flota,'',f.paterno,f.materno,f.nombres,f.tipoDoc,f.numDoc,f.placa,f.categoria,f.titular,
       f.pagoPaterno+' '+f.pagoMaterno,f.pagoNombres,f.pagoTipoDoc,f.pagoNumDoc,f.ruc,f.usuario,f.clave,f.banco,f.cuenta,f.celular,f.servicioContable,f.direccion,f.distrito,f.correo,'']);
   });
 
