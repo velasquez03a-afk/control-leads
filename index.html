@@ -1825,8 +1825,8 @@ async function editarFechaAfil(id, fecha){
 // con el formato exacto que ya usa el equipo de Finanzas.
 // ══════════════════════════════════════════════════════════
 
-// Convierte "CAPACITADO EL": el formato es MES/DÍA/AÑO (ej. "11/8/26" = 8 de noviembre) → "YYYY-MM-DD"
-// Si el "mes" sale inválido (>12), se asume que en ese caso particular estaba al revés (día/mes).
+// Convierte "CAPACITADO EL": el formato es DÍA/MES/AÑO (ej. "11/8/26" = 11 de agosto) → "YYYY-MM-DD"
+// Si el "mes" (segundo número) sale inválido (>12), se asume que en ese caso particular estaba al revés.
 function _parseFechaFlexible(v){
   if(!v) return null;
   const s=String(v).trim();
@@ -1837,8 +1837,8 @@ function _parseFechaFlexible(v){
     return null;
   }
   let [,p1,p2,year]=m;
-  let mes=parseInt(p1,10), dia=parseInt(p2,10);
-  if(mes>12&&dia<=12){ const t=mes; mes=dia; dia=t; } // caso raro: venía día/mes en vez de mes/día
+  let dia=parseInt(p1,10), mes=parseInt(p2,10);
+  if(mes>12&&dia<=12){ const t=mes; mes=dia; dia=t; } // caso raro: venía mes/día en vez de día/mes
   if(year.length===2) year='20'+year;
   return year+'-'+String(mes).padStart(2,'0')+'-'+String(dia).padStart(2,'0');
 }
