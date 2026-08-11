@@ -36,6 +36,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .avatar{width:38px;height:38px;border-radius:50%;background:var(--blue-light);color:var(--blue-dark);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}
 .avatar.adm{background:#EEEDFE;color:#3C3489}
 .avatar.mkt{background:#FEF3C7;color:#92400E}
+.avatar.rep{background:#DCFCE7;color:#166534}
 .app{max-width:1200px;margin:0 auto;padding:1rem}
 .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:8px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;box-shadow:var(--shadow)}
 .tabs{display:flex;gap:2px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:5px;margin-bottom:1rem;flex-wrap:wrap;box-shadow:var(--shadow)}
@@ -188,6 +189,7 @@ const DEFAULT_USERS=[
   {id:'u4',nombre:'Rommy',pin:'1234',role:'agente'},
   {id:'mkt',nombre:'Marketing',pin:'mkt2024',role:'marketing'},
   {id:'admin',nombre:'Supervisor',pin:'admin123',role:'admin'},
+  {id:'rep',nombre:'Reportes',pin:'rep2024',role:'reportes'},
 ];
 
 let _mt=null; // timeout handle para auto-ocultar mensajes (gMsg)
@@ -572,10 +574,13 @@ function render(){
   const u=ST.users.find(x=>x.id===ST.session);
   const isA=u&&u.role==='admin';
   const isMkt=u&&u.role==='marketing';
+  const isRep=u&&u.role==='reportes';
   const tabs=isA
     ?[['conductores','ti-users','Afiliados'],['diario','ti-calendar','Hoy'],['afiliadoras','ti-users-group','Afiliadoras'],['supervision','ti-eye','Supervisión'],['mensual','ti-trending-up','Sem/Mes'],['marketing','ti-report-money','Marketing'],['usuarios','ti-settings','Usuarios']]
     :isMkt
     ?[['conductores','ti-users','Afiliados'],['diario','ti-calendar','Hoy'],['mensual','ti-trending-up','Sem/Mes'],['marketing','ti-report-money','Marketing']]
+    :isRep
+    ?[['reportefinanzas','ti-report-money','Nuevos Ingresos']]
     :[['conductores','ti-users','Afiliados'],['diario','ti-calendar','Mi día'],['miresumen','ti-chart-pie','Mi resumen']];
   root.innerHTML=`<div class="app">
     <div class="topbar">
@@ -623,6 +628,7 @@ function renderSec(){
   else if(ST.tab==='supervision'&&isA)el.innerHTML=renderSupervisionMerged();
   else if(ST.tab==='mensual'&&(isA||isMkt))el.innerHTML=renderMensual();
   else if(ST.tab==='marketing'&&(isA||isMkt))el.innerHTML=renderInversion(isA);
+  else if(ST.tab==='reportefinanzas')el.innerHTML=renderReporteFinanzas();
   else if(ST.tab==='usuarios'&&isA)el.innerHTML=renderUsuarios();
 }
 function setTab(t){ST.tab=t;renderSec();}
@@ -656,8 +662,8 @@ function renderLogin(){
       ${ST.msg?`<div class="msg msg-${ST.msgType}"><i class="ti ti-alert-triangle"></i> ${ST.msg}</div>`:''}
       <div class="login-label">¿Quién eres?</div>
       ${ST.users.map(u=>`<button class="user-btn" onclick="selU('${u.id}')">
-        <div class="avatar ${u.role==='admin'?'adm':u.role==='marketing'?'mkt':''}">${ini(u.nombre)}</div>
-        <div style="flex:1"><div style="font-size:13px;font-weight:600">${u.nombre}</div><div style="font-size:11px;color:var(--text2)">${u.role==='admin'?'Administrador':u.role==='marketing'?'Marketing':'Agente'}</div></div>
+        <div class="avatar ${u.role==='admin'?'adm':u.role==='marketing'?'mkt':u.role==='reportes'?'rep':''}">${ini(u.nombre)}</div>
+        <div style="flex:1"><div style="font-size:13px;font-weight:600">${u.nombre}</div><div style="font-size:11px;color:var(--text2)">${u.role==='admin'?'Administrador':u.role==='marketing'?'Marketing':u.role==='reportes'?'Reportes':'Agente'}</div></div>
         <i class="ti ti-chevron-right" style="color:#ADB5BD;font-size:18px"></i>
       </button>`).join('')}
     </div>
@@ -667,7 +673,7 @@ function renderLogin(){
     <div class="login-hero" style="position:relative">${heroSVG()}<div class="login-hero-overlay">
       <div style="width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,.2);border:2px solid rgba(255,255,255,.5);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#fff">${ini(u.nombre)}</div>
       <div class="lh-title">${u.nombre}</div>
-      <div class="lh-sub">${u.role==='admin'?'Administrador':u.role==='marketing'?'Marketing':'Agente'}</div>
+      <div class="lh-sub">${u.role==='admin'?'Administrador':u.role==='marketing'?'Marketing':u.role==='reportes'?'Reportes':'Agente'}</div>
     </div></div>
     <div class="login-body">
       <button onclick="backL()" class="btn btn-sm" style="margin-bottom:14px"><i class="ti ti-arrow-left"></i> Volver</button>
@@ -684,7 +690,7 @@ function doLogin(){
   const pin=document.getElementById('pin-inp')?.value||'';
   if(!u)return;
   if(pin!==u.pin){ST.msg='PIN incorrecto.';ST.msgType='err';render();return;}
-  ST.session=u.id;ST.selUser=null;ST.tab='conductores';ST.msg=null;render();
+  ST.session=u.id;ST.selUser=null;ST.tab=u.role==='reportes'?'reportefinanzas':'conductores';ST.msg=null;render();
 }
 function logout(){ST.session=null;ST.msg=null;render();}
 
@@ -1813,6 +1819,207 @@ async function editarFechaAfil(id, fecha){
 
 // ── INVERSIÓN MENSUAL POR FLOTA (solo Marketing) ──────────
 // El Supervisor carga el monto invertido cada mes por flota; Marketing solo lo visualiza.
+// ══════════════════════════════════════════════════════════
+// REPORTE DE NUEVOS INGRESOS - FINANZAS (usuario "Reportes")
+// Lee el Excel crudo exportado de SharePoint y genera el reporte semanal
+// con el formato exacto que ya usa el equipo de Finanzas.
+// ══════════════════════════════════════════════════════════
+
+// Convierte "CAPACITADO EL": el formato es MES/DÍA/AÑO (ej. "11/8/26" = 8 de noviembre) → "YYYY-MM-DD"
+// Si el "mes" sale inválido (>12), se asume que en ese caso particular estaba al revés (día/mes).
+function _parseFechaFlexible(v){
+  if(!v) return null;
+  const s=String(v).trim();
+  const m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if(!m){
+    const m2=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if(m2) return m2[1]+'-'+m2[2]+'-'+m2[3];
+    return null;
+  }
+  let [,p1,p2,year]=m;
+  let mes=parseInt(p1,10), dia=parseInt(p2,10);
+  if(mes>12&&dia<=12){ const t=mes; mes=dia; dia=t; } // caso raro: venía día/mes en vez de mes/día
+  if(year.length===2) year='20'+year;
+  return year+'-'+String(mes).padStart(2,'0')+'-'+String(dia).padStart(2,'0');
+}
+
+// Extrae usuario/clave/correo del campo OBS, que trae los 3 datos juntos en texto libre,
+// en dos formatos distintos vistos en los datos reales.
+function _parseObsCredenciales(obs){
+  const vacio={usuario:'',clave:'',correo:''};
+  if(!obs) return vacio;
+  const txt=String(obs);
+  const mUser=txt.match(/USUARIO:\s*([^\n\r]+)/i);
+  const mPass=txt.match(/CONTRASE[ÑN]A:\s*([^\n\r]+)/i);
+  const mMail=txt.match(/CORREO:\s*([^\s\n\r]+)/i);
+  if(mUser||mPass||mMail){
+    return{usuario:mUser?mUser[1].trim():'',clave:mPass?mPass[1].trim():'',correo:mMail?mMail[1].trim():''};
+  }
+  // Formato libre: "RUC USUARIO CLAVE" en una línea, correo en la siguiente
+  const mEmail=txt.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+  if(mEmail){
+    const antes=txt.slice(0,mEmail.index).trim().split(/\s+/).filter(Boolean);
+    const ruc=antes.find(t=>/^\d{9,11}$/.test(t));
+    const resto=antes.filter(t=>t!==ruc);
+    return{usuario:resto[0]||'',clave:resto.slice(1).join(' ')||'',correo:mEmail[1]};
+  }
+  return vacio;
+}
+
+// Construye un índice { 'nombre columna en mayúsculas': índice } a partir de la fila de encabezados
+function _indiceColumnas(headerRow){
+  const idx={};
+  headerRow.forEach((h,i)=>{ if(h) idx[String(h).trim().toUpperCase()]=i; });
+  return idx;
+}
+
+let _reporteFinanzasPreview=null;
+
+function procesarArchivoFinanzas(file){
+  if(!file) return;
+  const reader=new FileReader();
+  reader.onload=(e)=>{
+    if(typeof XLSX==='undefined'){ gMsg('⚠ No se pudo cargar el lector de Excel.'); return; }
+    let wb;
+    try{ wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'}); }
+    catch(err){ gMsg('⚠ No se pudo leer el archivo. Verifica que no esté dañado.'); return; }
+    const sheet=wb.Sheets[wb.SheetNames[0]];
+    const matrix=XLSX.utils.sheet_to_json(sheet,{header:1,raw:false,defval:''});
+    if(!matrix.length){ gMsg('⚠ El archivo está vacío.'); return; }
+    const idx=_indiceColumnas(matrix[0]);
+    const col=(nombre)=>idx[nombre];
+
+    const filas=[];
+    for(let r=1;r<matrix.length;r++){
+      const f=matrix[r];
+      if(!f||!f.length) continue;
+      const estado=String(f[col('ESTADO')]||'').trim();
+      if(estado.toLowerCase()!=='ingresó-capacitado'&&estado.toLowerCase()!=='ingreso-capacitado') continue;
+      const fechaCap=_parseFechaFlexible(f[col('CAPACITADO EL:')]);
+      const titular=String(f[col('TITULAR PARA PAGOS')]||'').trim();
+      const esTercero=titular.toLowerCase()==='tercero';
+      const ruc=String(f[col('RUC')]||'').trim();
+      const obs=f[col('OBS')];
+      const cred=ruc?_parseObsCredenciales(obs):{usuario:'',clave:'',correo:''};
+
+      filas.push({
+        fechaCap,
+        paterno:String(f[col('A.PATERNO')]||'').trim(),
+        materno:String(f[col('A.MATERNO')]||'').trim(),
+        nombres:String(f[col('NOMBRES')]||'').trim(),
+        tipoDoc:String(f[col('TIPO DOCUMENTO')]||'').trim(),
+        numDoc:String(f[col('NUMDOCUMENTO')]||'').trim(),
+        placa:String(f[col('PLACA')]||'').trim(),
+        categoria:String(f[col('CATEGORIA DE VEHÍCULO')]||'').trim(),
+        flota:String(f[col('FLOTA')]||'').trim(),
+        titular:titular||'—',
+        celular:String(f[col('CELULAR')]||'').trim(),
+        direccion:String(f[col('DIRECCIÓN')]||'').trim(),
+        distrito:String(f[col('DISTRITO')]||'').trim(),
+        ruc,
+        servicioContable:ruc?'BASICO':'FACTURACION PROPIA',
+        usuario:cred.usuario,
+        clave:cred.clave,
+        correo:cred.correo,
+        banco:String(f[col('BANCO')]||'').trim(),
+        cuenta:String(f[col('Nº DE CUENTA')]||'').trim(),
+        // Titular a pagar (persona): si es tercero, usa sus datos; si no, se repiten los del propio conductor
+        pagoPaterno:esTercero?String(f[col('A. PATERNO DEL TERCERO')]||'').trim():String(f[col('A.PATERNO')]||'').trim(),
+        pagoMaterno:esTercero?String(f[col('A. MATERNO DEL TERCERO')]||'').trim():String(f[col('A.MATERNO')]||'').trim(),
+        pagoNombres:esTercero?String(f[col('NOMBRES DEL TERCERO')]||'').trim():String(f[col('NOMBRES')]||'').trim(),
+        pagoTipoDoc:esTercero?'DNI':String(f[col('TIPO DOCUMENTO')]||'').trim(),
+        pagoNumDoc:esTercero?String(f[col('DNI DEL TERCERO')]||'').trim():String(f[col('NUMDOCUMENTO')]||'').trim(),
+        capacitacion:String(f[col('CAPACITADO EL:')]||'').trim(),
+      });
+    }
+    _reporteFinanzasPreview=filas;
+    _renderPreviewFinanzas();
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function _renderPreviewFinanzas(){
+  const cont=document.getElementById('rf-preview');
+  if(!cont) return;
+  const desde=document.getElementById('rf-desde')?.value||'';
+  const hasta=document.getElementById('rf-hasta')?.value||'';
+  let filas=_reporteFinanzasPreview||[];
+  if(desde) filas=filas.filter(f=>f.fechaCap&&f.fechaCap>=desde);
+  if(hasta) filas=filas.filter(f=>f.fechaCap&&f.fechaCap<=hasta);
+  cont.style.display='block';
+  cont.innerHTML=`
+    <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:var(--radius-sm);padding:12px;margin:14px 0;font-size:13px">
+      <strong>✓ ${filas.length} nuevos ingresos</strong> encontrados en el rango seleccionado (de ${(_reporteFinanzasPreview||[]).length} filas "Ingresó-Capacitado" en el archivo).
+    </div>
+    <button class="btn btn-p" onclick="descargarReporteFinanzas()" ${filas.length?'':'disabled'}><i class="ti ti-download"></i> Descargar reporte de Finanzas</button>
+  `;
+}
+
+function descargarReporteFinanzas(){
+  const desde=document.getElementById('rf-desde')?.value||'';
+  const hasta=document.getElementById('rf-hasta')?.value||'';
+  let filas=(_reporteFinanzasPreview||[]);
+  if(desde) filas=filas.filter(f=>f.fechaCap&&f.fechaCap>=desde);
+  if(hasta) filas=filas.filter(f=>f.fechaCap&&f.fechaCap<=hasta);
+  if(!filas.length){ gMsg('No hay filas para exportar en ese rango.'); return; }
+
+  const rangoTxt=(desde&&hasta)?('SEMANA '+desde.split('-').reverse().join('/')+' AL '+hasta.split('-').reverse().join('/')):'(todos los registros)';
+  const aoa=[];
+  aoa[0]=[]; aoa[0][7]='NUEVOS INGRESOS '+rangoTxt;
+  aoa[1]=[];
+  aoa[2]=['','MEMBRESIA AEROPUERTO','','','CAPACITACION','OPERACION','TURNO','APELLIDOS','','NOMBRES','DOCUMENTO','N° DOCUMENTO','PLACA','CATEGORIA','TITULAR A PAGAR','APELLIDOS Y NOMBRES','','DOCUMENTO','N° DOCUMENTO','RUC','USUARIO','CLAVE','BANCO','CUENTA BANCARIA','CELULAR','SERVICIO CONTABLE','DIRECCIÓN','DISTRITO','CORREO','OBSERVACIONES'];
+
+  filas.forEach(f=>{
+    aoa.push(['','','','',f.capacitacion,f.flota,'',f.paterno,f.materno,f.nombres,f.tipoDoc,f.numDoc,f.placa,f.categoria,f.titular,
+      f.pagoPaterno+' '+f.pagoMaterno,f.pagoNombres,f.pagoTipoDoc,f.pagoNumDoc,f.ruc,f.usuario,f.clave,f.banco,f.cuenta,f.celular,f.servicioContable,f.direccion,f.distrito,f.correo,'']);
+  });
+
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!merges']=[
+    {s:{r:0,c:7},e:{r:0,c:11}},   // título
+    {s:{r:2,c:1},e:{r:2,c:2}},    // MEMBRESIA AEROPUERTO
+    {s:{r:2,c:7},e:{r:2,c:8}},    // APELLIDOS
+    {s:{r:2,c:15},e:{r:2,c:16}},  // APELLIDOS Y NOMBRES (pago)
+  ];
+  ws['!cols']=aoa[2].map(()=>({wch:16}));
+  const wbOut=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wbOut,ws,'Nuevos Ingresos');
+  XLSX.writeFile(wbOut,'Nuevos_Ingresos_'+(desde||'reporte')+'_'+(hasta||'')+'.xlsx');
+  gMsg('✅ Reporte descargado: '+filas.length+' registros.');
+}
+
+function renderReporteFinanzas(){
+  return `<div>
+    <div class="section-hdr" style="margin-bottom:14px">
+      <div style="font-size:15px;font-weight:700"><i class="ti ti-report-money" style="color:#166534;margin-right:6px"></i>Reporte de Nuevos Ingresos — Finanzas</div>
+    </div>
+
+    <div class="card" style="padding:16px;margin-bottom:16px">
+      <div style="font-size:13px;color:var(--text2);margin-bottom:14px">
+        Sube el Excel exportado de SharePoint tal cual (sin modificarlo). El sistema toma automáticamente solo los conductores con estado <b>"Ingresó-Capacitado"</b> y arma el reporte con el formato de Finanzas.
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:420px;margin-bottom:16px">
+        <div class="fg" style="margin:0"><label>Desde (fecha de capacitación)</label><input type="date" id="rf-desde" onchange="_renderPreviewFinanzas()"></div>
+        <div class="fg" style="margin:0"><label>Hasta</label><input type="date" id="rf-hasta" onchange="_renderPreviewFinanzas()"></div>
+      </div>
+
+      <div id="rf-drop" style="border:2px dashed var(--border2);border-radius:var(--radius);padding:2rem;text-align:center;cursor:pointer;background:var(--bg3)"
+        onclick="document.getElementById('rf-file').click()"
+        ondragover="event.preventDefault();this.style.borderColor='#166534';this.style.background='#F0FDF4'"
+        ondragleave="this.style.borderColor='';this.style.background='var(--bg3)'"
+        ondrop="event.preventDefault();this.style.borderColor='';this.style.background='var(--bg3)';procesarArchivoFinanzas(event.dataTransfer.files[0])">
+        <i class="ti ti-upload" style="font-size:2rem;color:#166534;display:block;margin-bottom:8px"></i>
+        <div style="font-size:14px;font-weight:600;color:#166534">Arrastra el Excel de SharePoint aquí</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:4px">o haz clic para seleccionar (.xlsx)</div>
+        <input type="file" id="rf-file" accept=".xlsx,.xls" style="display:none" onchange="procesarArchivoFinanzas(this.files[0])">
+      </div>
+
+      <div id="rf-preview" style="display:none"></div>
+    </div>
+  </div>`;
+}
+
 function renderInversion(isA){
   const hoyD=new Date();
   const mesSel=document.getElementById('inv-mes')?.value||(MESES[hoyD.getMonth()]+' '+hoyD.getFullYear());
