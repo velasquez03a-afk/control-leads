@@ -500,8 +500,9 @@ async function initBin(){
   // Marcar automáticamente conductores inactivos hace 15+ días (sin afectar nada más)
   const _cambiosInactivos=_autoMarcarInactivos();
   // Congelar en el historial las semanas de "Bolsa" que ya cerraron y todavía no tenían foto guardada
+  const _huboManual=sembrarBolsaHistoricoManual();
   const _huboNuevasBolsa=capturarBolsaSemanasVencidas();
-  if(_cambiosInactivos>0||_huboNuevasBolsa) await saveBin();
+  if(_cambiosInactivos>0||_huboManual||_huboNuevasBolsa) await saveBin();
   syncBadge();
   renderSec();
   // Auto-refresh cada 30s para ver cambios de otras usuarias
@@ -695,6 +696,32 @@ function capturarBolsaSemanasVencidas(){
     const porFlota={};
     FLOTAS.forEach(f=>{ porFlota[f]={bolsa:bolsaSemana(semKey,f),convertidos:convertidosSemana(semKey,f)}; });
     ST.bolsaHistorial[semKey]={capturadoEl:hoy(),porFlota};
+    huboNuevas=true;
+  });
+  return huboNuevas;
+}
+
+// ── HISTORIAL MANUAL DE BOLSA (semanas 27 a 31 de 2026) ────────────────────
+// El supervisor llevaba este control a mano antes de que existiera este reporte en el sistema.
+// Se carga UNA SOLA VEZ (si la semana ya existe en ST.bolsaHistorial, no se toca) para no perder
+// ese historial. Jockey + Bellavista se suman en "Plazas" (así están agrupadas en el sistema).
+// Nota: solo se tiene el número de Bolsa de esas semanas, no el de conversiones, así que
+// "convertidos" queda en 0 para estas 5 semanas específicas (no hay forma de reconstruirlo).
+function sembrarBolsaHistoricoManual(){
+  const datos={
+    '2026-W27':{Aeropuerto:8,'Aerolíneas':16,Ciudad:14,Plazas:1+1},   // Jockey 1 + Bellavista 1
+    '2026-W28':{Aeropuerto:6,'Aerolíneas':10,Ciudad:11,Plazas:2+1},   // Jockey 2 + Bellavista 1
+    '2026-W29':{Aeropuerto:6,'Aerolíneas':9, Ciudad:14,Plazas:3+1},   // Jockey 3 + Bellavista 1
+    '2026-W30':{Aeropuerto:0,'Aerolíneas':0, Ciudad:0, Plazas:0+0},   // semana sin datos registrados
+    '2026-W31':{Aeropuerto:7,'Aerolíneas':15,Ciudad:24,Plazas:0+0},   // Jockey 0 + Bellavista 0
+  };
+  ST.bolsaHistorial=ST.bolsaHistorial||{};
+  let huboNuevas=false;
+  Object.keys(datos).forEach(semKey=>{
+    if(ST.bolsaHistorial[semKey]) return; // ya existe (cargado antes o congelado por el sistema): no se pisa
+    const porFlota={};
+    FLOTAS.forEach(f=>{ porFlota[f]={bolsa:datos[semKey][f]||0,convertidos:0}; });
+    ST.bolsaHistorial[semKey]={capturadoEl:hoy(),porFlota,manual:true};
     huboNuevas=true;
   });
   return huboNuevas;
@@ -2285,7 +2312,7 @@ function renderReporteBolsa(){
       <thead>
         <tr style="background:var(--bg3)">
           <th rowspan="2" style="padding:6px 10px;text-align:left;font-size:11px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);position:sticky;left:0;background:var(--bg3)">Flota</th>
-          ${semanas.map(s=>`<th colspan="2" style="padding:4px 10px;font-size:10px;border-bottom:1px solid var(--border);border-left:1px solid var(--border);white-space:nowrap">${semRng(s)}${esEnCurso(s)?' <span style="color:#B45309;font-weight:700">(en curso)</span>':''}</th>`).join('')}
+          ${semanas.map(s=>`<th colspan="2" style="padding:4px 10px;font-size:10px;border-bottom:1px solid var(--border);border-left:1px solid var(--border);white-space:nowrap">${semRng(s)}${esEnCurso(s)?' <span style="color:#B45309;font-weight:700">(en curso)</span>':''}${(ST.bolsaHistorial&&ST.bolsaHistorial[s]&&ST.bolsaHistorial[s].manual)?' <span title="Cargado manualmente, no incluye dato de conversión" style="color:#7C3AED;font-weight:700">(manual)</span>':''}</th>`).join('')}
         </tr>
         <tr style="background:var(--bg3)">
           ${semanas.map(()=>`<th style="padding:3px 8px;font-size:9px;color:#7C3AED;border-bottom:1px solid var(--border);border-left:1px solid var(--border)">Bolsa</th><th style="padding:3px 8px;font-size:9px;color:#166534;border-bottom:1px solid var(--border)">Conv.</th>`).join('')}
