@@ -1704,23 +1704,31 @@ function miniTabla(lista,titulo,color,h){
 
 
 function calcStats(arr){
-  const chats     = arr.length;
-  const activo    = arr.filter(c=>!c.dropout&&c.etapa>=1).length;
-  const noActivo  = arr.filter(c=>!c.dropout&&c.etapa===0).length;
-  const califica  = arr.filter(c=>!c.dropout&&c.etapa>=1).length;
-  const noCalif   = arr.filter(c=>c.dropout).length;
-  // "En Bolsa": SOLO Antecedentes, Evaluación Psicológica o Capacitación (etapas 4-6).
-  const bolsa     = arr.filter(c=>!c.dropout&&c.etapa>=4&&c.etapa<=6).length;
-  // "En proceso": el resto de conductores activos que aún no llegan a Bolsa (etapas 0-3).
-  const enProceso = arr.filter(c=>!c.dropout&&c.etapa>=0&&c.etapa<=3).length;
-  const anteced   = arr.filter(c=>!c.dropout&&c.etapa===4).length;
-  const desaprobK = arr.filter(c=>c.dropout&&c.etapa===5).length;
-  const evPsic    = arr.filter(c=>!c.dropout&&c.etapa===5).length;
-  const desaprobM = arr.filter(c=>c.dropout&&c.etapa===4).length;
-  const capacit   = arr.filter(c=>!c.dropout&&c.etapa===6).length;
-  const desaprobC = arr.filter(c=>c.dropout&&c.etapa===6).length;
-  const afiliado  = arr.filter(c=>!c.dropout&&c.etapa===7).length;
-  const noAfil    = arr.filter(c=>c.dropout).length;
+  // Antes esta función recorría la lista completa 15 veces (una por cada .filter()).
+  // Con pocos conductores no se nota, pero con cientos/miles se vuelve un cuello de botella real,
+  // sobre todo porque se llama muchas veces por render en "Sem/Mes" y "Supervisión".
+  // Ahora se hace UN SOLO recorrido, contando todo a la vez — mismo resultado, mucho más rápido.
+  let chats=arr.length, activo=0, noActivo=0, noCalif=0, bolsa=0, enProceso=0, anteced=0,
+    desaprobK=0, evPsic=0, desaprobM=0, capacit=0, desaprobC=0, afiliado=0;
+  for(let i=0;i<arr.length;i++){
+    const c=arr[i];
+    if(c.dropout){
+      noCalif++;
+      if(c.etapa===4) desaprobM++;
+      else if(c.etapa===5) desaprobK++;
+      else if(c.etapa===6) desaprobC++;
+    }else{
+      if(c.etapa>=1) activo++;
+      else noActivo++;
+      if(c.etapa>=4&&c.etapa<=6) bolsa++;
+      if(c.etapa>=0&&c.etapa<=3) enProceso++;
+      if(c.etapa===4) anteced++;
+      else if(c.etapa===5) evPsic++;
+      else if(c.etapa===6) capacit++;
+      else if(c.etapa===7) afiliado++;
+    }
+  }
+  const califica=activo, noAfil=noCalif;
   return{chats,activo,noActivo,califica,noCalif,bolsa,enProceso,anteced,desaprobK,evPsic,desaprobM,capacit,desaprobC,afiliado,noAfil,
     noCalifica:noCalif,noAfiliado:noAfil};
 }
@@ -2387,19 +2395,27 @@ function renderMensual(){
   const mesActual=MESES[new Date().getMonth()];
   const mesSel=mesSelEl?mesSelEl.value:mesActual;
 
+  // Antes esto se calculaba (semana + mes de la última fecha) 2-3 veces por conductor en pasadas
+  // separadas; ahora se calcula UNA vez por conductor y se reutiliza, más rápido con listas grandes.
+  const mesSemPorConductor=new Map();
+  ST.conductores.forEach(c=>{
+    const sk=semDia(ultimaFecha(c));
+    mesSemPorConductor.set(c.id,{sk,mes:mesDeSemana(sk)});
+  });
+
   // Meses con datos
   const mesesConDatos=new Set();
-  ST.conductores.forEach(c=>mesesConDatos.add(mesDeSemana(semDia(ultimaFecha(c)))));
+  mesSemPorConductor.forEach(v=>mesesConDatos.add(v.mes));
   const mesesList=[...new Set([...MESES.filter(m=>mesesConDatos.has(m)),mesActual])];
 
   // Conductores del mes: según la fecha de su ÚLTIMO MOVIMIENTO (mismo criterio en todos los reportes)
-  const csMes=ST.conductores.filter(c=>mesDeSemana(semDia(ultimaFecha(c)))===mesSel);
+  const csMes=ST.conductores.filter(c=>mesSemPorConductor.get(c.id).mes===mesSel);
   const metaVal=ST['meta_'+mesSel]||0;
 
   // semsMap: agrupado por semana del ÚLTIMO MOVIMIENTO
   const semsMap={};
   csMes.forEach(c=>{
-    const sk=semDia(ultimaFecha(c));
+    const sk=mesSemPorConductor.get(c.id).sk;
     if(!semsMap[sk])semsMap[sk]=[];
     semsMap[sk].push(c);
   });
@@ -2407,7 +2423,7 @@ function renderMensual(){
   // afilMap: agrupado por semana del último movimiento (para el desglose por flota)
   const afilMap={};
   ST.conductores.filter(cx=>cx.etapa===7&&!cx.dropout).forEach(cx=>{
-    const sk=semDia(ultimaFecha(cx));
+    const sk=mesSemPorConductor.get(cx.id).sk;
     if(!afilMap[sk])afilMap[sk]=[];
     afilMap[sk].push(cx);
   });
@@ -3113,6 +3129,11 @@ async function eliminarSinCelularValidoSupervisor(){
   saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
 }
 
+// Paginación de la tabla de Supervisión: igual que "Lista completa", antes dibujaba TODOS los
+// conductores de golpe (con 3 selects cada uno = muy pesado con cientos/miles de registros).
+let _sv2Limite=60;
+function mostrarMasSV2(){ _sv2Limite+=60; renderSec(); }
+
 function renderSupervisionMerged(){
   const curU=ST.users.find(x=>x.id===ST.session);
   const isA=curU&&curU.role==='admin';
@@ -3184,8 +3205,8 @@ function renderSupervisionMerged(){
     +'<div style="font-size:12px;color:var(--text2);margin-top:8px">'+base.length+' conductor'+(base.length!==1?'es':'')+' encontrado'+(base.length!==1?'s':'')+'</div>'
     +'</div>';
 
-  // Table rows
-  const rows=base.map(function(c,i){
+  // Table rows (paginado: solo se dibujan hasta _sv2Limite filas de golpe)
+  const rows=base.slice(0,_sv2Limite).map(function(c,i){
     const ag=ST.users.find(x=>x.id===c.agenteId);
     const et=c.dropout?{label:'No continúa',cls:'e-drop'}:(ETAPAS[c.etapa]||ETAPAS[0]);
     const estado=c.etapa===7?'<span style="color:var(--green);font-weight:700">✓ Afiliado</span>':c.dropout?'<span style="color:var(--err)">Baja</span>':'<span style="color:var(--blue)">Activo</span>';
@@ -3238,19 +3259,22 @@ function renderSupervisionMerged(){
     +'<div class="card" style="padding:0;overflow:hidden"><div class="tbl-wrap"><table id="sv2-table">'
     +'<thead><tr><th>Nombre</th><th>Celular</th><th>Flota</th><th>Canal</th><th>Agente</th><th>Contacto</th><th>Último mov.</th><th>Días</th><th>Etapa</th><th>Estado</th><th style="text-align:center">Cap.1</th><th style="text-align:center">Cap.2</th><th>Motivo baja</th><th></th></tr></thead>'
     +'<tbody>'+rows+'</tbody>'
-    +'</table></div></div>'
+    +'</table></div>'
+    +(base.length>_sv2Limite?'<div style="padding:10px;text-align:center"><button class="btn btn-sm" onclick="mostrarMasSV2()"><i class="ti ti-chevron-down"></i> Mostrar más ('+(base.length-_sv2Limite)+' restantes)</button></div>':'')
+    +'</div>'
     +'</div>';
 }
 
 function sv2SetEstado(val){
   const el=document.getElementById('sv2-estado');
-  if(el){el.value=val;renderSec();}
+  if(el){el.value=val;_sv2Limite=60;renderSec();}
 }
 
 function limpiarSV2(){
   ['sv2-busca','sv2-cel','sv2-flota','sv2-canal','sv2-agente','sv2-estado','sv2-f1','sv2-f2','sv2-m1','sv2-m2'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.value='';
   });
+  _sv2Limite=60;
   renderSec();
 }
 
@@ -3353,25 +3377,14 @@ function calcularAvances(){
     +'</tr></thead><tbody>'+rows+'</tbody></table></div>';
 }
 
+// Antes esto solo mostraba/ocultaba las filas YA dibujadas en pantalla — con la paginación nueva,
+// eso significa que solo buscaba dentro de las primeras 60 filas visibles, no en toda la lista.
+// Ahora vuelve a calcular la página completa (con debounce, para no recalcular en cada tecla).
+let _sv2FiltroDebTimer=null;
 function filtrarSV2(){
-  const busca=(document.getElementById('sv2-busca')?.value||'').toLowerCase().trim();
-  const cel=(document.getElementById('sv2-cel')?.value||'').replace(/\D/g,'').trim();
-  const tbody=document.querySelector('#sv2-table tbody');
-  if(!tbody){renderSec();return;}
-  let vis=0;
-  tbody.querySelectorAll('tr').forEach(tr=>{
-    const tds=[...tr.querySelectorAll('td')];
-    if(!tds.length)return;
-    const nombre=(tds[0]?.textContent||'').toLowerCase();
-    // Celular cell may contain an input element
-    const celInput=tds[1]?.querySelector('input');
-    const celular=(celInput?celInput.value:(tds[1]?.textContent||'')).replace(/\D/g,'');
-    const show=(!busca||nombre.includes(busca))&&(!cel||celular.includes(cel));
-    tr.style.display=show?'':'none';
-    if(show)vis++;
-  });
-  const cnt=document.querySelector('#sv2-count');
-  if(cnt)cnt.textContent=vis+' conductor'+(vis!==1?'es':'')+' encontrado'+(vis!==1?'s':'');
+  _sv2Limite=60; // nueva búsqueda: se vuelve a empezar desde la primera página
+  if(_sv2FiltroDebTimer) clearTimeout(_sv2FiltroDebTimer);
+  _sv2FiltroDebTimer=setTimeout(renderSec,250);
 }
 
 function renderAfiliadoras(){
