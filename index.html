@@ -5,9 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Control de Leads</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" defer></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" defer></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -132,6 +131,24 @@ td.left{text-align:left;padding-left:8px}
 <script>
 function ini(nombre){if(!nombre)return '?';const parts=nombre.trim().split(' ').filter(Boolean);if(parts.length>=2)return(parts[0][0]+parts[1][0]).toUpperCase();const w=parts[0]||'';const m=w.slice(1).match(/[A-ZÁÉÍÓÚÑ]/);if(m)return(w[0]+m[0]).toUpperCase();return w.slice(0,2).toUpperCase();}
 function hoy(){const d=new Date();return d.getFullYear()+'-'+(d.getMonth()+1<10?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate();}
+
+// ── CARGA DIFERIDA DE xlsx.js (rendimiento) ──
+// Antes esta librería (pesada, ~900KB) se cargaba en el <head>, bloqueando la página entera hasta
+// que terminaba de descargar, aunque solo se usa para leer/generar archivos Excel (una acción
+// ocasional). Ahora se descarga solo la primera vez que realmente se necesita, en segundo plano.
+let _xlsxPromise=null;
+function cargarXLSX(){
+  if(typeof XLSX!=='undefined') return Promise.resolve();
+  if(_xlsxPromise) return _xlsxPromise;
+  _xlsxPromise=new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload=()=>resolve();
+    s.onerror=()=>{_xlsxPromise=null;reject(new Error('No se pudo cargar el lector de Excel'));};
+    document.head.appendChild(s);
+  });
+  return _xlsxPromise;
+}
 function pct(a,b){return b>0?Math.round(a/b*100)+'%':'0%';}
 // Obtener última fecha de movimiento de un conductor (su historial más reciente, o fechaContacto si no tiene historial)
 function ultimaFecha(c){const h=c.historial||[];return h.length?h[h.length-1].fecha:c.fechaContacto;}
@@ -987,6 +1004,12 @@ function exportMiResumen(){
 }
 
 // ── CONDUCTORES / KANBAN ──────────────────────────────────
+// Paginación de la tabla "Lista completa": antes se dibujaban TODAS las filas de golpe (podían ser
+// cientos/miles), lo que hacía que la página se sintiera trabada al abrir la pestaña o al buscar.
+// Ahora se muestran de a 60 y hay un botón "Mostrar más" para pedir más cuando se necesiten.
+let _tablaLimite=60;
+function mostrarMasTabla(){ _tablaLimite+=60; filtrarTablaLista(); }
+
 function renderConductores(isA,isMkt){
   const visibles=(isA||isMkt)?ST.conductores:ST.conductores.filter(c=>c.agenteId===ST.session);
   const fF=ST.filtros.flota||'';
@@ -1016,9 +1039,10 @@ function renderConductores(isA,isMkt){
       <div class="card-title"><i class="ti ti-layout-kanban" style="color:var(--blue)"></i> Estado del proceso</div>
       <div class="kanban">
         ${ETAPAS.map(e=>{
-          const cs=visibles.filter(c=>!c.dropout&&c.etapa===e.id);
+          const csAll=visibles.filter(c=>!c.dropout&&c.etapa===e.id);
+          const cs=csAll.slice(0,40); // el kanban es para vista rápida; el resto se ve en "Lista completa" filtrando por etapa
           return`<div class="k-col">
-            <div class="k-col-hdr"><span class="etag ${e.cls}" style="font-size:10px"><i class="ti ${e.icon}"></i>${e.label}</span><span class="pill-n">${cs.length}</span></div>
+            <div class="k-col-hdr"><span class="etag ${e.cls}" style="font-size:10px"><i class="ti ${e.icon}"></i>${e.label}</span><span class="pill-n">${csAll.length}</span></div>
             <div style="overflow-y:auto;max-height:420px">
             ${cs.map(c=>`<div class="k-row" onclick="verC('${c.id}')">
               <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
@@ -1030,6 +1054,7 @@ function renderConductores(isA,isMkt){
                 <span class="stag ${canalC[c.canal]||''}" style="font-size:9px">${c.canal}</span>
               </div>
             </div>`).join('')}
+            ${csAll.length>40?`<div style="padding:6px;text-align:center;font-size:10px;color:var(--text2)">+${csAll.length-40} más — filtra por esta etapa en "Lista completa" para verlos</div>`:''}
             </div>
           </div>`;
         }).join('')}
@@ -1060,32 +1085,9 @@ function renderConductores(isA,isMkt){
       <div id="filtros-lista-wrap"></div>
       <div class="tbl-wrap"><table>
         <thead><tr><th>Nombre</th><th>Celular</th><th>Flota</th><th>Canal</th><th>Agente</th><th>Fecha contacto</th><th>Último mov.</th><th>Etapa actual</th><th>Días</th><th>Estado</th><th style="text-align:center">Cap. 1</th><th style="text-align:center">Cap. 2</th><th>Acciones</th></tr></thead>
-        <tbody id="conductores-tbody">${lista.length?lista.map(c=>{
-          const ag=ST.users.find(x=>x.id===c.agenteId);
-          const dias=diasDesde(c.fechaContacto,c);
-          const ult=ultimaFecha(c);
-          const et=c.dropout?{label:'No continúa',cls:'e-drop'}:(ETAPAS[c.etapa]||ETAPAS[0]);
-          return`<tr>
-            <td class="left" style="font-weight:600">${c.nombre}</td>
-            <td style="font-size:11px">${c.celular||'—'}</td>
-            <td>${isMkt?`<span class="stag ${flotaC[c.flota]||''}">${c.flota}</span>`:`<select onchange="editarFlota('${c.id}',this)" style="border:1px solid var(--border2);border-radius:var(--radius-sm);padding:2px 6px;font-size:11px;background:var(--bg2);cursor:pointer;font-weight:600">${FLOTAS.map(f=>`<option value="${f}" ${c.flota===f?'selected':''}>${f}</option>`).join('')}</select>`}</td>
-            <td><span class="stag ${canalC[c.canal]||''}">${c.canal}</span></td>
-            <td style="font-size:11px">${ag?ag.nombre.split(' ')[0]:'—'}</td>
-            <td style="font-size:11px">${c.fechaContacto}</td>
-            <td style="font-size:11px">${ult}</td>
-            <td><span class="etag ${et.cls}">${et.label}</span></td>
-            <td>${c.dropout?'—':diasTag(dias)}</td>
-            <td>${c.etapa===7?'<span style="color:var(--green);font-weight:600">✓ Afiliado</span>':c.dropout?'<span style="color:var(--err)">Baja</span>':'<span style="color:var(--blue)">Activo</span>'}</td>            <td style="text-align:center">${c.etapa===7?(isMkt?`<span style="font-size:11px;color:${c.cap1?'#166534':'#9CA3AF'};font-weight:600">${c.cap1?'✓ Hecha':'Pend.'}</span>`:`<label style="cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px"><input type="checkbox" ${c.cap1?'checked':''} onchange="toggleCap('${c.id}',1,this.checked)" style="width:16px;height:16px;accent-color:#166534"><span style="font-size:10px;color:${c.cap1?'#166534':'#9CA3AF'}">${c.cap1?'✓':'Pend.'}</span></label>`):'—'}</td>
-            <td style="text-align:center">${c.etapa===7?(isMkt?`<span style="font-size:11px;color:${c.cap2?'#166534':'#9CA3AF'};font-weight:600">${c.cap2?'✓ Hecha':'Pend.'}</span>`:`<label style="cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px"><input type="checkbox" ${c.cap2?'checked':''} onchange="toggleCap('${c.id}',2,this.checked)" style="width:16px;height:16px;accent-color:#166534"><span style="font-size:10px;color:${c.cap2?'#166534':'#9CA3AF'}">${c.cap2?'✓':'Pend.'}</span></label>`):'—'}</td>
-
-            <td><div style="display:flex;gap:3px;justify-content:center">
-              <button onclick="verC('${c.id}')" class="btn btn-sm" style="padding:3px 7px"><i class="ti ti-eye" style="color:var(--blue)"></i></button>
-              ${isA?`<button onclick="elimC('${c.id}')" class="btn btn-sm btn-danger" style="padding:3px 7px"><i class="ti ti-trash"></i></button>`:''}
-            </div></td>
-          </tr>`;
-        }).join(''):`<tr><td colspan="11" style="padding:2rem;color:var(--text2)">Sin conductores. Usa "Nuevo conductor" para agregar.</td></tr>`}
-        </tbody>
+        <tbody id="conductores-tbody">${generarFilasLista(lista.slice(0,_tablaLimite))}</tbody>
       </table></div>
+      <div id="lista-mas-wrap" style="padding:10px;text-align:center">${lista.length>_tablaLimite?`<button class="btn btn-sm" onclick="mostrarMasTabla()"><i class="ti ti-chevron-down"></i> Mostrar más (${lista.length-_tablaLimite} restantes)</button>`:''}</div>
     </div>
   </div>`;
 }
@@ -2047,6 +2049,8 @@ let _reporteFinanzasPreview=null;
 
 function procesarArchivoFinanzas(file){
   if(!file) return;
+  gMsg('Cargando lector de Excel...');
+  cargarXLSX().then(()=>{
   const reader=new FileReader();
   reader.onload=(e)=>{
     if(typeof XLSX==='undefined'){ gMsg('⚠ No se pudo cargar el lector de Excel.'); return; }
@@ -2111,6 +2115,7 @@ function procesarArchivoFinanzas(file){
     _renderPreviewFinanzas();
   };
   reader.readAsArrayBuffer(file);
+  }).catch(()=>{ gMsg('⚠ No se pudo cargar el lector de Excel. Revisa tu conexión e intenta de nuevo.'); });
 }
 
 function _renderPreviewFinanzas(){
@@ -2130,7 +2135,8 @@ function _renderPreviewFinanzas(){
   `;
 }
 
-function descargarReporteFinanzas(){
+async function descargarReporteFinanzas(){
+  await cargarXLSX();
   const desde=document.getElementById('rf-desde')?.value||'';
   const hasta=document.getElementById('rf-hasta')?.value||'';
   let filas=(_reporteFinanzasPreview||[]);
@@ -2688,19 +2694,21 @@ function initFiltrosLista(){
     '<div class="g4" style="margin-bottom:12px;margin-top:12px">'
     +'<div class="fg" style="margin:0"><label>Buscar nombre</label><input type="text" id="cf-busca" placeholder="Nombre..." oninput="filtrarTablaListaDeb()"></div>'
     +'<div class="fg" style="margin:0"><label>Buscar celular</label><input type="text" id="cf-celular" placeholder="Ej: 999888777" oninput="filtrarTablaListaDeb()"></div>'
-    +'<div class="fg" style="margin:0"><label>Flota</label><select id="cf-flota" onchange="filtrarTablaLista()"><option value="">Todas</option>'+FLOTAS.map(f=>'<option value="'+f+'">'+f+'</option>').join('')+'</select></div>'
-    +'<div class="fg" style="margin:0"><label>Estado</label><select id="cf-etapa" onchange="filtrarTablaLista()"><option value="">Todos</option><option value="activos">En proceso</option><option value="afiliados">Afiliados</option><option value="dropout">No continuaron</option></select></div>'
+    +'<div class="fg" style="margin:0"><label>Flota</label><select id="cf-flota" onchange="_tablaLimite=60;filtrarTablaLista()"><option value="">Todas</option>'+FLOTAS.map(f=>'<option value="'+f+'">'+f+'</option>').join('')+'</select></div>'
+    +'<div class="fg" style="margin:0"><label>Estado</label><select id="cf-etapa" onchange="_tablaLimite=60;filtrarTablaLista()"><option value="">Todos</option><option value="activos">En proceso</option><option value="afiliados">Afiliados</option><option value="dropout">No continuaron</option></select></div>'
     +'<div class="fg" style="margin:0"><label>&nbsp;</label><div style="padding-top:8px;display:flex;gap:8px;align-items:center"><span id="lista-count" style="font-size:12px;color:var(--text2)"></span><button class="btn btn-sm" onclick="filtrarTablaLista()"><i class="ti ti-search"></i> Buscar</button><button class="btn btn-sm" onclick="limpiarFiltrosConductores()"><i class="ti ti-x"></i></button></div></div>'
     +'</div>';
 }
 // Espera 250ms sin que se escriba antes de filtrar, así no se recalcula la tabla en cada letra
 let _filtroDebTimer=null;
 function filtrarTablaListaDeb(){
+  _tablaLimite=60; // nueva búsqueda: se vuelve a empezar desde la primera página
   if(_filtroDebTimer) clearTimeout(_filtroDebTimer);
   _filtroDebTimer=setTimeout(filtrarTablaLista,250);
 }
 function limpiarFiltrosConductores(){
   ['cf-busca','cf-celular','cf-flota','cf-etapa'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  _tablaLimite=60;
   filtrarTablaLista();
 }
 function filtrarTablaLista(){
@@ -2721,10 +2729,12 @@ function filtrarTablaLista(){
   if(fB) lista=lista.filter(c=>(c.nombre||'').toLowerCase().includes(fB)||normCel(c.celular).includes(fB.replace(/\D/g,'')));
   if(fC) lista=lista.filter(c=>normCel(c.celular).includes(fC));
   const cnt=document.getElementById('lista-count');
-  if(cnt) cnt.textContent=lista.length+' resultado(s)';
+  if(cnt) cnt.textContent=(lista.length>_tablaLimite?_tablaLimite+' de ':'')+lista.length+' resultado(s)';
   const tbody=document.getElementById('conductores-tbody');
   if(!tbody){renderSec();return;}
-  tbody.innerHTML=generarFilasLista(lista);
+  tbody.innerHTML=generarFilasLista(lista.slice(0,_tablaLimite));
+  const masWrap=document.getElementById('lista-mas-wrap');
+  if(masWrap) masWrap.innerHTML=lista.length>_tablaLimite?`<button class="btn btn-sm" onclick="mostrarMasTabla()"><i class="ti ti-chevron-down"></i> Mostrar más (${lista.length-_tablaLimite} restantes)</button>`:'';
 }
 
 
@@ -3800,6 +3810,8 @@ function procesarArchivoCarga(file){
   }
 
   // .xlsx / .xls → parseo real con SheetJS
+  gMsg('Cargando lector de Excel...');
+  cargarXLSX().then(()=>{
   reader.onload=(e)=>{
     if(typeof XLSX==='undefined'){
       gMsg('⚠ No se pudo cargar el lector de Excel. Revisa tu conexión e intenta de nuevo.');
@@ -3830,6 +3842,7 @@ function procesarArchivoCarga(file){
     _procesarReporteChat(matrix);
   };
   reader.readAsArrayBuffer(file);
+  }).catch(()=>{ gMsg('⚠ No se pudo cargar el lector de Excel. Revisa tu conexión e intenta de nuevo.'); });
 }
 
 // Ubica la fila de encabezados del "Reporte de Chat de Agentes" (por defecto fila 7 = índice 6)
