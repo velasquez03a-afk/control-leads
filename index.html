@@ -156,10 +156,32 @@ function _registroIdentico(a,b){
     &&a.canal===b.canal
     &&a.agenteId===b.agenteId;
 }
+// ── ÍNDICE DE DUPLICADOS (rendimiento) ──
+// Antes, esDuplicado() recorría TODA la lista de conductores por cada fila que se dibujaba,
+// así que al escribir en el buscador (una llamada por cada conductor visible, en cada tecla)
+// el costo crecía al cuadrado con la cantidad de conductores y la app se sentía trabada.
+// Ahora se arma un índice (celular -> conductores) una sola vez y se reutiliza mientras los
+// datos no cambien; se invalida automáticamente en renderSec() cada vez que sí cambian.
+let _dupIndex=null, _dupIndexLen=-1;
+function _buildDupIndex(){
+  const idx={};
+  ST.conductores.forEach(c=>{
+    const k=normCel(c.celular);
+    if(k.length<7) return;
+    (idx[k]=idx[k]||[]).push(c);
+  });
+  return idx;
+}
 function esDuplicado(c){
   const cel=normCel(c.celular);
   if(cel.length<7) return false;
-  return ST.conductores.some(x=>x.id!==c.id&&normCel(x.celular)===cel&&!_registroIdentico(c,x));
+  if(!_dupIndex||_dupIndexLen!==ST.conductores.length){
+    _dupIndex=_buildDupIndex();
+    _dupIndexLen=ST.conductores.length;
+  }
+  const grupo=_dupIndex[cel];
+  if(!grupo) return false;
+  return grupo.some(x=>x.id!==c.id&&!_registroIdentico(c,x));
 }
 
 
@@ -329,6 +351,7 @@ function hideLoad(){
 function _marcarSucio(id){
   if(!ST._dirty) ST._dirty=new Set();
   ST._dirty.add(id);
+  _dupIndex=null; // datos modificados: el índice de duplicados debe recalcularse
 }
 
 async function saveBin(){
@@ -470,14 +493,16 @@ async function initBin(){
       if(!r.ok)return;
       const d=await r.json();
       if(d&&d.conductores){
-        const remoteLen=d.conductores.length;
-        const localLen=ST.conductores.length;
-        // Si hay cambios remotos, actualizar
-        if(remoteLen!==localLen||JSON.stringify(d.conductores)!==JSON.stringify(ST.conductores)){
+        // Antes esto comparaba las dos listas completas con JSON.stringify cada 30 segundos,
+        // lo que se vuelve cada vez más pesado mientras más conductores hay (incluye notas de
+        // historial, etc.). Se reemplaza por una firma liviana: solo id + etapa + baja +
+        // cantidad de movimientos, suficiente para detectar cambios reales sin serializar todo.
+        if(_firmaConductores(d.conductores)!==_firmaConductores(ST.conductores)){
           ST.users=(d.users&&d.users.length)?d.users:ST.users;
           ST.conductores=d.conductores;
           ST.metas=d.metas||ST.metas;
           ST.inversiones=d.inversiones||ST.inversiones;
+          _dupIndex=null; // datos remotos nuevos: el índice de duplicados debe recalcularse
           saveLocal();
           ST.lastSync=new Date();ST.syncErr=false;
           syncBadge();
@@ -486,6 +511,10 @@ async function initBin(){
       }
     }catch(e){ST.syncErr=true;syncBadge();}
   },30000);
+}
+// Firma liviana de la lista de conductores, para detectar cambios sin serializar todo el objeto
+function _firmaConductores(lista){
+  return lista.length+'|'+lista.map(c=>c.id+':'+c.etapa+(c.dropout?'d':'')+':'+(c.historial?c.historial.length:0)).join(',');
 }
 
 // Importar datos desde otro dispositivo
@@ -986,7 +1015,7 @@ async function guardarC(){
     historial:[{fecha:f,etapa:0,nota:nota||'Primer contacto',usuario:u.nombre}],
   });
   _marcarSucio(nuevoId);
-  await saveBin();closeM();renderSec();
+  closeM();renderSec();saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
   if(dupCel){
     const ag=ST.users.find(x=>x.id===dupCel.agenteId);
     gMsg('⚠ Conductor "'+n+'" registrado, pero el celular '+cel+' ya estaba registrado por '+(ag?ag.nombre:'otra afiliadora')+' ("'+dupCel.nombre+'"). Se marcó como duplicado en la lista.');
@@ -1090,7 +1119,7 @@ async function avanzar(id){
   c.historial.push({fecha:hoy(),etapa:nv,nota:nota||`Avanzó a ${ETAPAS[nv]?.label}`,usuario:u.nombre});
   if(nv===7&&!c.fechaAfiliacion) c.fechaAfiliacion=hoy();
   _marcarSucio(id);
-  await saveBin();closeM();renderSec();
+  closeM();renderSec();saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
   gMsg(`Conductor avanzado a "${ETAPAS[nv]?.label}".`);
 }
 
@@ -1127,7 +1156,7 @@ async function guardarDrop(id){
   c.dropout=true;c.motivoDropout=m;c.historial=c.historial||[];
   c.historial.push({fecha:hoy(),etapa:c.etapa,nota:`Baja: ${m}. ${nota}`,usuario:u.nombre});
   _marcarSucio(id);
-  await saveBin();closeM();renderSec();
+  closeM();renderSec();saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
   gMsg('Conductor marcado como no continúa.');
 }
 async function elimC(id){
@@ -1135,7 +1164,9 @@ async function elimC(id){
   ST.conductores=ST.conductores.filter(x=>x.id!==id);
   if(!ST._eliminados) ST._eliminados=new Set();
   ST._eliminados.add(id);
-  await saveBin();renderSec();gMsg('Conductor eliminado.');
+  _dupIndex=null; // se eliminó un conductor: el índice de duplicados debe recalcularse
+  renderSec();gMsg('Conductor eliminado.');
+  saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
 }
 
 // ── CONSOLIDADO HOY ───────────────────────────────────────
@@ -1813,8 +1844,8 @@ async function editarFechaAfil(id, fecha){
   if(!c||c.etapa!==7)return;
   c.fechaAfiliacion=fecha;
   _marcarSucio(id);
-  await saveBin();
   gMsg('Fecha de afiliación actualizada: '+fecha);
+  saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
 }
 
 // ── INVERSIÓN MENSUAL POR FLOTA (solo Marketing) ──────────
@@ -1901,6 +1932,10 @@ function procesarArchivoFinanzas(file){
       const ruc=String(f[col('RUC')]||'').trim();
       const obs=f[col('OBS')];
       const cred=ruc?_parseObsCredenciales(obs):{usuario:'',clave:'',correo:''};
+      // Criterio de Servicio Contable: si no se detectan USUARIO y CLAVE (sea porque no hay RUC
+      // o porque el campo de observaciones no traía los datos), se considera que el conductor
+      // factura por cuenta propia. Solo se marca "BASICO" cuando sí se logró detectar usuario y clave.
+      const sinCredenciales=!cred.usuario.trim()&&!cred.clave.trim();
 
       filas.push({
         fechaCap,
@@ -1917,7 +1952,7 @@ function procesarArchivoFinanzas(file){
         direccion:String(f[col('DIRECCIÓN')]||'').trim(),
         distrito:String(f[col('DISTRITO')]||'').trim(),
         ruc,
-        servicioContable:ruc?'BASICO':'FACTURACION PROPIA',
+        servicioContable:sinCredenciales?'FACTURACION POR CUENTA PROPIA':'BASICO',
         usuario:cred.usuario,
         clave:cred.clave,
         correo:cred.correo,
@@ -2102,9 +2137,9 @@ async function guardarInversion(key){
     const v=parseFloat(document.getElementById('inv-'+f)?.value);
     ST.inversiones[key][f]=isNaN(v)?0:v;
   });
-  await saveBin();
   renderSec();
   gMsg('✅ Inversión guardada.');
+  saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
 }
 
 
@@ -2436,12 +2471,18 @@ function initFiltrosLista(){
   if(wrap.dataset) wrap.dataset.init='1';
   wrap.innerHTML=
     '<div class="g4" style="margin-bottom:12px;margin-top:12px">'
-    +'<div class="fg" style="margin:0"><label>Buscar nombre</label><input type="text" id="cf-busca" placeholder="Nombre..." oninput="filtrarTablaLista()"></div>'
-    +'<div class="fg" style="margin:0"><label>Buscar celular</label><input type="text" id="cf-celular" placeholder="Ej: 999888777" oninput="filtrarTablaLista()"></div>'
+    +'<div class="fg" style="margin:0"><label>Buscar nombre</label><input type="text" id="cf-busca" placeholder="Nombre..." oninput="filtrarTablaListaDeb()"></div>'
+    +'<div class="fg" style="margin:0"><label>Buscar celular</label><input type="text" id="cf-celular" placeholder="Ej: 999888777" oninput="filtrarTablaListaDeb()"></div>'
     +'<div class="fg" style="margin:0"><label>Flota</label><select id="cf-flota" onchange="filtrarTablaLista()"><option value="">Todas</option>'+FLOTAS.map(f=>'<option value="'+f+'">'+f+'</option>').join('')+'</select></div>'
     +'<div class="fg" style="margin:0"><label>Estado</label><select id="cf-etapa" onchange="filtrarTablaLista()"><option value="">Todos</option><option value="activos">En proceso</option><option value="afiliados">Afiliados</option><option value="dropout">No continuaron</option></select></div>'
     +'<div class="fg" style="margin:0"><label>&nbsp;</label><div style="padding-top:8px;display:flex;gap:8px;align-items:center"><span id="lista-count" style="font-size:12px;color:var(--text2)"></span><button class="btn btn-sm" onclick="filtrarTablaLista()"><i class="ti ti-search"></i> Buscar</button><button class="btn btn-sm" onclick="limpiarFiltrosConductores()"><i class="ti ti-x"></i></button></div></div>'
     +'</div>';
+}
+// Espera 250ms sin que se escriba antes de filtrar, así no se recalcula la tabla en cada letra
+let _filtroDebTimer=null;
+function filtrarTablaListaDeb(){
+  if(_filtroDebTimer) clearTimeout(_filtroDebTimer);
+  _filtroDebTimer=setTimeout(filtrarTablaLista,250);
 }
 function limpiarFiltrosConductores(){
   ['cf-busca','cf-celular','cf-flota','cf-etapa'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
@@ -2701,6 +2742,65 @@ function svSetRango(desde,hasta){
   renderSec();
 }
 
+// ── LIMPIEZA DE DUPLICADOS (solo Supervisor/Admin) ──────────
+// Un mismo conductor puede quedar registrado varias veces con el mismo celular
+// (distintas afiliadoras, canales o flotas). Esto infla los números en los reportes.
+// Criterio: de cada grupo de conductores con el mismo celular, se conserva SOLO el que
+// llegó más lejos en el proceso (mayor etapa). En caso de empate en etapa, se prefiere
+// el que sigue activo (no dado de baja) y, si aún hay empate, el de movimiento más reciente.
+function _elegirGanadorDuplicado(grupo){
+  return grupo.slice().sort((a,b)=>{
+    if(a.etapa!==b.etapa) return b.etapa-a.etapa;               // mayor etapa (más avanzado) primero
+    if(!!a.dropout!==!!b.dropout) return (a.dropout?1:0)-(b.dropout?1:0); // activo antes que baja
+    return (ultimaFecha(b)||'').localeCompare(ultimaFecha(a)||'');        // más reciente primero
+  })[0];
+}
+async function eliminarDuplicadosSupervisor(){
+  const u=ST.users.find(x=>x.id===ST.session);
+  if(!u||u.role!=='admin'){gMsg('Solo el Supervisor puede eliminar duplicados.','err');return;}
+
+  // Agrupar conductores por celular normalizado
+  const porCel={};
+  ST.conductores.forEach(c=>{
+    const k=normCel(c.celular);
+    if(k.length<7) return; // celular inválido/incompleto: no se agrupa
+    (porCel[k]=porCel[k]||[]).push(c);
+  });
+
+  const aEliminar=[];
+  let grupos=0;
+  Object.values(porCel).forEach(arr=>{
+    if(arr.length<2) return; // sin duplicados en este celular
+    grupos++;
+    const ganador=_elegirGanadorDuplicado(arr);
+    arr.forEach(c=>{ if(c.id!==ganador.id) aEliminar.push(c); });
+  });
+
+  if(!aEliminar.length){ gMsg('No se encontraron conductores duplicados. La lista ya está limpia.'); return; }
+
+  const detalle=aEliminar.slice(0,15).map(c=>{
+    const ag=ST.users.find(x=>x.id===c.agenteId);
+    return '• '+c.nombre+' — '+(ETAPAS[c.etapa]?.label||'')+(c.dropout?' (baja)':'')+' — '+(ag?ag.nombre:'—');
+  }).join('\n')+(aEliminar.length>15?'\n… y '+(aEliminar.length-15)+' más.':'');
+
+  const ok=confirm(
+    'Se encontraron '+grupos+' conductor(es) con celular duplicado.\n'
+    +'Se eliminarán '+aEliminar.length+' registro(s), conservando en cada caso el que llegó más lejos en el proceso:\n\n'
+    +detalle
+    +'\n\n⚠️ Esta acción no se puede deshacer. ¿Confirmas la limpieza?'
+  );
+  if(!ok) return;
+
+  if(!ST._eliminados) ST._eliminados=new Set();
+  const idsEliminar=new Set(aEliminar.map(c=>c.id));
+  idsEliminar.forEach(id=>ST._eliminados.add(id));
+  ST.conductores=ST.conductores.filter(c=>!idsEliminar.has(c.id));
+  _dupIndex=null; // se eliminaron conductores: el índice de duplicados debe recalcularse
+  renderSec();
+  gMsg('✅ '+aEliminar.length+' duplicado(s) eliminado(s). Se conservó, en cada caso, el conductor con el proceso más avanzado.');
+  saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
+}
+
 function renderSupervisionMerged(){
   const curU=ST.users.find(x=>x.id===ST.session);
   const isA=curU&&curU.role==='admin';
@@ -2819,7 +2919,7 @@ function renderSupervisionMerged(){
   return '<div>'
     +'<div class="section-hdr" style="margin-bottom:12px">'
     +'<div style="font-size:15px;font-weight:700"><i class="ti ti-eye" style="color:var(--blue);margin-right:6px"></i>Supervisión — Vista consolidada</div>'
-    +'<div style="display:flex;gap:8px"><button class="btn btn-sm" onclick="renderSec()"><i class="ti ti-refresh"></i> Actualizar</button></div>'
+    +'<div style="display:flex;gap:8px"><button class="btn btn-sm" onclick="renderSec()"><i class="ti ti-refresh"></i> Actualizar</button><button class="btn btn-sm" style="background:#FEF2F2;border-color:#FECACA;color:#DC2626" onclick="eliminarDuplicadosSupervisor()"><i class="ti ti-users-minus"></i> Eliminar duplicados</button></div>'
     +'</div>'
     +'<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:1rem">'+kpiCards+'</div>'
     +filtersHTML
@@ -3310,9 +3410,9 @@ async function guardarEdicionAdmin(id){
   c.agenteId=agenteId;
   if(fechaAfil) c.fechaAfiliacion=fechaAfil;
   _marcarSucio(id);
-  await saveBin();
   closeM();
   renderSec();
+  saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
   if(dup){
     const ag=ST.users.find(x=>x.id===dup.agenteId);
     gMsg('⚠ Conductor actualizado, pero el celular ya existe en "'+dup.nombre+'" ('+(ag?ag.nombre:'otra afiliadora')+'). Se marcó como duplicado.');
@@ -3760,11 +3860,12 @@ async function importarConductoresMasivo(){
     agregados++;
   });
 
-  await saveBin();
+  _dupIndex=null; // se agregaron conductores: el índice de duplicados debe recalcularse
   _cargaPreview=[];
   closeM();
   renderSec();
   gMsg('✅ '+agregados+' conductores nuevos importados'+(omitidos>0?' ('+omitidos+' ya registrados, omitidos sin cambios)':'')+'.');
+  saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
 }
 
 initBin();
@@ -3906,7 +4007,7 @@ async function guardarMetas(){
     agenteSem: +document.getElementById('m-agsem').value||2,
     agenteMes: +document.getElementById('m-agmes').value||9,
   };
-  await saveBin();closeM();renderSec();
+  closeM();renderSec();saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
   gMsg('Metas actualizadas.');
 }
 
