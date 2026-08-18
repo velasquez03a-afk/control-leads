@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Control de Leads</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" defer></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" defer></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -522,6 +522,30 @@ async function initBin(){
   if(_cambiosInactivos>0||_huboManual||_huboNuevasBolsa) await saveBin();
   syncBadge();
   renderSec();
+  // Si la primera conexión falló (ej. señal inestable justo al abrir), reintenta pronto en vez de
+  // esperar el ciclo normal de 30s, para que "Conectando..." no se quede pegado innecesariamente.
+  if(ST.syncErr){
+    setTimeout(async()=>{
+      if(!ST.syncErr)return; // ya se resolvió solo (ej. por el ciclo normal)
+      try{
+        const r2=await fetch(await fbUrl(FB_PATH),{headers:{'Accept':'application/json'}});
+        if(r2.ok){
+          const d2=await r2.json();
+          if(d2&&d2.conductores!==undefined){
+            ST.users=(d2.users&&d2.users.length)?d2.users:ST.users;
+            ST.conductores=d2.conductores||[];
+            ST.metas=d2.metas||ST.metas;
+            ST.inversiones=d2.inversiones||ST.inversiones;
+            ST.bolsaHistorial=d2.bolsaHistorial||ST.bolsaHistorial;
+            saveLocal();
+            ST.lastSync=new Date();ST.syncErr=false;
+            syncBadge();
+            renderSec();
+          }
+        }
+      }catch(e){/* seguirá reintentando cada 30s por el ciclo normal */}
+    },3000);
+  }
   // Auto-refresh cada 30s para ver cambios de otras usuarias
   setInterval(async()=>{
     if(!ST.session||ST.syncing)return;
