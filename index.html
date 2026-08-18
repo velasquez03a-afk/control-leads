@@ -703,8 +703,11 @@ function capturarBolsaSemanasVencidas(){
 
 // ── HISTORIAL MANUAL DE BOLSA (semanas 27 a 31 de 2026) ────────────────────
 // El supervisor llevaba este control a mano antes de que existiera este reporte en el sistema.
-// Se carga UNA SOLA VEZ (si la semana ya existe en ST.bolsaHistorial, no se toca) para no perder
-// ese historial. Jockey + Bellavista se suman en "Plazas" (así están agrupadas en el sistema).
+// Si la semana YA fue cargada con este mismo dato manual antes, no se vuelve a tocar (para no
+// reescribir cada vez que se abre la app). Pero si la semana fue "congelada" automáticamente por
+// el sistema ANTES de tener este dato manual (con el historial incompleto de esa época), SÍ se
+// sobreescribe una vez con el número real, porque el manual es el correcto.
+// Jockey + Bellavista se suman en "Plazas" (así están agrupadas en el sistema).
 // Nota: solo se tiene el número de Bolsa de esas semanas, no el de conversiones, así que
 // "convertidos" queda en 0 para estas 5 semanas específicas (no hay forma de reconstruirlo).
 function sembrarBolsaHistoricoManual(){
@@ -718,7 +721,8 @@ function sembrarBolsaHistoricoManual(){
   ST.bolsaHistorial=ST.bolsaHistorial||{};
   let huboNuevas=false;
   Object.keys(datos).forEach(semKey=>{
-    if(ST.bolsaHistorial[semKey]) return; // ya existe (cargado antes o congelado por el sistema): no se pisa
+    const existente=ST.bolsaHistorial[semKey];
+    if(existente&&existente.manual) return; // ya se cargó este dato manual antes: no repetir
     const porFlota={};
     FLOTAS.forEach(f=>{ porFlota[f]={bolsa:datos[semKey][f]||0,convertidos:0}; });
     ST.bolsaHistorial[semKey]={capturadoEl:hoy(),porFlota,manual:true};
