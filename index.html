@@ -232,6 +232,7 @@ let ST={
   users:DEFAULT_USERS.map(u=>({...u})),
   conductores:[],
   inversiones:{}, // {"YYYY-MM":{Aeropuerto:0,Aerolíneas:0,Ciudad:0,Plazas:0}} — inversión mensual por flota
+  bolsaHistorial:{}, // {"YYYY-Wnn":{capturadoEl,porFlota:{Aeropuerto:{bolsa,convertidos},...}}} — foto fija de cada domingo, ya cerrada no se recalcula
   session:null, tab:'conductores',
   msg:null, msgType:'ok',
   selUser:null,
@@ -326,7 +327,7 @@ async function backupToSheetsManual(){
 function saveLocal(){
   try{
     localStorage.setItem(LS_KEY,JSON.stringify({
-      users:ST.users,conductores:ST.conductores,metas:ST.metas,inversiones:ST.inversiones,savedAt:new Date().toISOString()
+      users:ST.users,conductores:ST.conductores,metas:ST.metas,inversiones:ST.inversiones,bolsaHistorial:ST.bolsaHistorial,savedAt:new Date().toISOString()
     }));
   }catch(e){}
 }
@@ -338,6 +339,7 @@ function loadLocal(){
     if(d.conductores) ST.conductores=d.conductores;
     if(d.metas) ST.metas=d.metas;
     if(d.inversiones) ST.inversiones=d.inversiones;
+    if(d.bolsaHistorial) ST.bolsaHistorial=d.bolsaHistorial;
     if(d.savedAt) ST.lastSync=new Date(d.savedAt);
   }catch(e){}
 }
@@ -405,7 +407,7 @@ async function saveBin(){
     saveLocal();
 
     // 3) Guardar el resultado fusionado
-    const data={users:ST.users,conductores:ST.conductores,metas:ST.metas||{},inversiones:ST.inversiones||{}};
+    const data={users:ST.users,conductores:ST.conductores,metas:ST.metas||{},inversiones:ST.inversiones||{},bolsaHistorial:ST.bolsaHistorial||{}};
     const r=await fetch(await fbUrl(FB_PATH),{
       method:'PUT',
       headers:{'Content-Type':'application/json','Accept':'application/json'},
@@ -432,6 +434,7 @@ async function loadBin(){
       ST.conductores=d.conductores||[];
       ST.metas=d.metas||ST.metas;
           ST.inversiones=d.inversiones||ST.inversiones;
+          ST.bolsaHistorial=d.bolsaHistorial||ST.bolsaHistorial;
       saveLocal();
       ST.lastSync=new Date();ST.syncErr=false;
     }
@@ -482,6 +485,7 @@ async function initBin(){
           ST.conductores=d.conductores||[];
           ST.metas=d.metas||ST.metas;
           ST.inversiones=d.inversiones||ST.inversiones;
+          ST.bolsaHistorial=d.bolsaHistorial||ST.bolsaHistorial;
           saveLocal();
         }
         ST.lastSync=new Date();ST.syncErr=false;
@@ -495,7 +499,9 @@ async function initBin(){
   }
   // Marcar automáticamente conductores inactivos hace 15+ días (sin afectar nada más)
   const _cambiosInactivos=_autoMarcarInactivos();
-  if(_cambiosInactivos>0) await saveBin();
+  // Congelar en el historial las semanas de "Bolsa" que ya cerraron y todavía no tenían foto guardada
+  const _huboNuevasBolsa=capturarBolsaSemanasVencidas();
+  if(_cambiosInactivos>0||_huboNuevasBolsa) await saveBin();
   syncBadge();
   renderSec();
   // Auto-refresh cada 30s para ver cambios de otras usuarias
@@ -515,6 +521,7 @@ async function initBin(){
           ST.conductores=d.conductores;
           ST.metas=d.metas||ST.metas;
           ST.inversiones=d.inversiones||ST.inversiones;
+          ST.bolsaHistorial=d.bolsaHistorial||ST.bolsaHistorial;
           _dupIndex=null; // datos remotos nuevos: el índice de duplicados debe recalcularse
           saveLocal();
           ST.lastSync=new Date();ST.syncErr=false;
@@ -607,6 +614,92 @@ function semLabel(semKey){
   return'Sem '+parseInt(w)+' ('+semRng(semKey)+')';
 }
 function mesDeF(f){return MESES[new Date(f+'T12:00:00').getMonth()]||MESACT;}
+
+// Devuelve la fecha (YYYY-MM-DD) del domingo (fin de semana) de una clave de semana "YYYY-Wnn"
+function finDeSemana(semKey){
+  if(!semKey||!semKey.includes('-W'))return hoy();
+  const [y,w]=semKey.split('-W');
+  const año=parseInt(y); const nSem=parseInt(w);
+  const ene1=new Date(año,0,1);
+  const diasHastaLun=(nSem-1)*7-(ene1.getDay()||7)+1;
+  const lun=new Date(año,0,1+diasHastaLun);
+  const dom=new Date(lun); dom.setDate(lun.getDate()+6);
+  return dom.getFullYear()+'-'+String(dom.getMonth()+1).padStart(2,'0')+'-'+String(dom.getDate()).padStart(2,'0');
+}
+
+// Genera las últimas N claves de semana (más reciente primero), retrocediendo de 7 en 7 días desde hoy
+function ultimasSemanas(n){
+  const out=[];
+  let d=new Date(hoy()+'T12:00:00');
+  while(out.length<n){
+    const f=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    const key=semDia(f);
+    if(!out.includes(key)) out.push(key);
+    d.setDate(d.getDate()-7);
+  }
+  return out;
+}
+
+// Reconstruye el estado (etapa y si ya estaba de baja) de un conductor tal como estaba al cierre
+// de una fecha específica, usando su historial. Si el conductor aún no había sido registrado en
+// esa fecha, devuelve null (no existía todavía, no cuenta para esa semana).
+function estadoAlaFecha(c,fechaLimite){
+  const hist=(c.historial||[]).filter(h=>h.fecha&&h.fecha<=fechaLimite);
+  if(!hist.length) return null;
+  hist.sort((a,b)=>a.fecha<b.fecha?-1:a.fecha>b.fecha?1:0);
+  const ultimo=hist[hist.length-1];
+  const dropout=hist.some(h=>(h.nota||'').startsWith('Baja:'));
+  return {etapa:ultimo.etapa,dropout};
+}
+
+// "Bolsa": conductores en evaluación (Antecedentes, Entrevista Psi. o Capacitación), sin contar afiliados ni bajas
+const ETAPAS_BOLSA=[4,5,6];
+function bolsaSemana(semKey,flota){
+  const fechaLimite=finDeSemana(semKey);
+  let n=0;
+  ST.conductores.forEach(c=>{
+    if(flota&&c.flota!==flota) return;
+    const est=estadoAlaFecha(c,fechaLimite);
+    if(!est||est.dropout) return;
+    if(ETAPAS_BOLSA.includes(est.etapa)) n++;
+  });
+  return n;
+}
+// Conversión: conductores que se afiliaron (llegaron a etapa 7) dentro de esa semana
+function convertidosSemana(semKey,flota){
+  let n=0;
+  ST.conductores.forEach(c=>{
+    if(flota&&c.flota!==flota) return;
+    if(!c.fechaAfiliacion) return;
+    if(semDia(c.fechaAfiliacion)===semKey) n++;
+  });
+  return n;
+}
+
+// ── CONGELAR "BOLSA" CADA DOMINGO ──────────────────────────
+// El reporte de Bolsa es para ver el COMPORTAMIENTO histórico real, así que cada semana que ya
+// cerró (su domingo ya pasó) se calcula UNA SOLA VEZ y se guarda en ST.bolsaHistorial. A partir
+// de ahí ese número queda fijo para siempre: aunque después se edite o corrija algún historial,
+// el dato de esa semana ya cerrada NO se vuelve a tocar. Solo la semana EN CURSO (todavía no llega
+// su domingo) se sigue calculando en vivo, porque aún puede seguir cambiando.
+// Se revisa automáticamente cada vez que la app carga datos (initBin), así que no depende de que
+// alguien entre justo el domingo: se captura la primera vez que alguien abre la app después.
+function capturarBolsaSemanasVencidas(){
+  ST.bolsaHistorial=ST.bolsaHistorial||{};
+  const semanas=ultimasSemanas(26); // hasta 26 semanas atrás (medio año) por si la app estuvo un tiempo sin abrirse
+  let huboNuevas=false;
+  semanas.forEach(semKey=>{
+    if(ST.bolsaHistorial[semKey]) return; // ya estaba congelada, no se toca
+    const domingo=finDeSemana(semKey);
+    if(domingo>=hoy()) return; // esta semana todavía no cierra (hoy es su domingo o antes): no se congela todavía
+    const porFlota={};
+    FLOTAS.forEach(f=>{ porFlota[f]={bolsa:bolsaSemana(semKey,f),convertidos:convertidosSemana(semKey,f)}; });
+    ST.bolsaHistorial[semKey]={capturadoEl:hoy(),porFlota};
+    huboNuevas=true;
+  });
+  return huboNuevas;
+}
+
 
 
 // ── RENDER PRINCIPAL ─────────────────────────────────────
@@ -2140,8 +2233,78 @@ function renderInversion(isA){
         </tr>`).join('')}</tbody>
       </table></div>
     </div>`:''}
+
+    ${renderReporteBolsa()}
   </div>`;
 }
+
+// ── REPORTE: BOLSA SEMANAL POR FLOTA ──────────────────────
+// Filas = Flota. Por cada semana (cierre domingo) se muestra cuántos conductores se quedaron
+// "en bolsa" (Antecedentes, Entrevista Psi. o Capacitación, sin llegar a Afiliado) y cuántos
+// lograron convertirse (afiliarse) esa misma semana.
+function renderReporteBolsa(){
+  const nSemanas=parseInt(document.getElementById('bolsa-nsem')?.value)||8;
+  const semanas=ultimasSemanas(nSemanas).reverse(); // de más antigua a más reciente, para leer de izq. a der.
+
+  const totalesBolsa={}, totalesConv={};
+  semanas.forEach(s=>{totalesBolsa[s]=0;totalesConv[s]=0;});
+
+  // Para cada semana: si ya está congelada en ST.bolsaHistorial (semana cerrada), se usa ESE dato
+  // fijo, sin recalcular. Si es la semana en curso (su domingo todavía no llega), se calcula en
+  // vivo, porque todavía puede seguir cambiando hasta que cierre.
+  const valor=(semKey,flota)=>{
+    const cong=ST.bolsaHistorial&&ST.bolsaHistorial[semKey];
+    if(cong&&cong.porFlota&&cong.porFlota[flota]) return cong.porFlota[flota];
+    return {bolsa:bolsaSemana(semKey,flota),convertidos:convertidosSemana(semKey,flota)};
+  };
+  const esEnCurso=(semKey)=>!(ST.bolsaHistorial&&ST.bolsaHistorial[semKey]);
+
+  const filas=FLOTAS.map(flota=>{
+    const porSemana=semanas.map(s=>{
+      const v=valor(s,flota);
+      totalesBolsa[s]+=v.bolsa; totalesConv[s]+=v.convertidos;
+      return {b:v.bolsa,c:v.convertidos};
+    });
+    return {flota,porSemana};
+  });
+
+  return `<div class="card" style="padding:0;overflow:hidden;margin-top:16px">
+    <div style="padding:10px 14px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div>
+        <div style="font-size:13px;font-weight:700"><i class="ti ti-briefcase" style="color:#7C3AED;margin-right:4px"></i>Bolsa semanal por flota</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">Conductores en Antecedentes, Entrevista Psi. o Capacitación al cierre de cada domingo (no incluye afiliados ni bajas). Cada semana que ya cerró queda guardada tal cual, para reflejar el comportamiento histórico real.</div>
+      </div>
+      <div class="fg" style="margin:0;max-width:160px">
+        <label style="font-size:10px">Semanas a mostrar</label>
+        <select id="bolsa-nsem" onchange="renderSec()">
+          ${[4,8,12,26].map(n=>`<option value="${n}" ${n===nSemanas?'selected':''}>${n} semanas</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr style="background:var(--bg3)">
+          <th rowspan="2" style="padding:6px 10px;text-align:left;font-size:11px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);position:sticky;left:0;background:var(--bg3)">Flota</th>
+          ${semanas.map(s=>`<th colspan="2" style="padding:4px 10px;font-size:10px;border-bottom:1px solid var(--border);border-left:1px solid var(--border);white-space:nowrap">${semRng(s)}${esEnCurso(s)?' <span style="color:#B45309;font-weight:700">(en curso)</span>':''}</th>`).join('')}
+        </tr>
+        <tr style="background:var(--bg3)">
+          ${semanas.map(()=>`<th style="padding:3px 8px;font-size:9px;color:#7C3AED;border-bottom:1px solid var(--border);border-left:1px solid var(--border)">Bolsa</th><th style="padding:3px 8px;font-size:9px;color:#166534;border-bottom:1px solid var(--border)">Conv.</th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${filas.map(fl=>`<tr>
+          <td style="padding:5px 10px;font-size:12px;font-weight:600;border-bottom:0.5px solid var(--border);border-right:1px solid var(--border);white-space:nowrap;position:sticky;left:0;background:var(--bg1)"><span class="stag ${flotaC[fl.flota]}">${fl.flota}</span></td>
+          ${fl.porSemana.map(v=>`<td style="padding:5px 8px;font-size:12px;text-align:center;border-bottom:0.5px solid var(--border);border-left:1px solid var(--border);font-weight:700;color:#7C3AED">${v.b}</td><td style="padding:5px 8px;font-size:12px;text-align:center;border-bottom:0.5px solid var(--border);font-weight:700;color:#166534">${v.c}</td>`).join('')}
+        </tr>`).join('')}
+        <tr style="background:var(--bg3)">
+          <td style="padding:5px 10px;font-size:12px;font-weight:700;border-right:1px solid var(--border);position:sticky;left:0;background:var(--bg3)">Total</td>
+          ${semanas.map(s=>`<td style="padding:5px 8px;font-size:12px;text-align:center;border-left:1px solid var(--border);font-weight:800;color:#7C3AED">${totalesBolsa[s]}</td><td style="padding:5px 8px;font-size:12px;text-align:center;font-weight:800;color:#166534">${totalesConv[s]}</td>`).join('')}
+        </tr>
+      </tbody>
+    </table></div>
+  </div>`;
+}
+
 
 async function guardarInversion(key){
   const u=ST.users.find(x=>x.id===ST.session);
@@ -2822,61 +2985,66 @@ async function eliminarDuplicadosSupervisor(){
   saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
 }
 
-// ── LIMPIEZA DE CELULARES (solo Supervisor/Admin) ──────────
+// ── CORREGIR / ELIMINAR SEGÚN CELULAR (solo Supervisor/Admin) ──────────
 // Revisa TODOS los conductores ya cargados en el sistema:
-// - Si el celular tiene un formato corregible (espacios, guiones, o el prefijo de país "51"), lo corrige
-//   a los 9 dígitos reales (ej: "51 999-888-777" → "999888777").
-// - Si NO se puede convertir a un celular válido de 9 dígitos (es basura, texto, un número de otro tipo, etc.),
-//   se vacía el campo (no se inventa un número), dejando registro en el historial del conductor.
-async function limpiarCelularesSupervisor(){
+// - Si el celular SÍ se puede convertir a un número válido (9 dígitos empezando en 9), pero tiene
+//   un formato distinto (espacios, guiones, el prefijo de país "51", etc.), lo CORRIGE dejándolo
+//   limpio. El conductor NO se toca ni se borra, solo se arregla el número.
+// - Si el celular NO se puede convertir a un número válido de ninguna forma (está vacío, es texto,
+//   le faltan o le sobran dígitos, etc.), se BORRA POR COMPLETO el registro del conductor.
+//   No se deja a nadie con el campo en blanco: o se corrige, o se elimina.
+async function eliminarSinCelularValidoSupervisor(){
   const u=ST.users.find(x=>x.id===ST.session);
-  if(!u||u.role!=='admin'){gMsg('Solo el Supervisor puede limpiar los celulares.');return;}
+  if(!u||u.role!=='admin'){gMsg('Solo el Supervisor puede ejecutar esta acción.');return;}
 
-  const corregidos=[]; // formato distinto, pero sí se pudo dejar en 9 dígitos válidos
-  const invalidos=[];  // no es un celular válido: se vacía
+  const corregidos=[]; // se pudo arreglar el formato: se corrige, no se borra
+  const aEliminar=[];  // no hay forma de dejarlo válido: se elimina el conductor completo
 
   ST.conductores.forEach(c=>{
     const original=(c.celular||'').trim();
-    if(!original) return; // ya está vacío, nada que limpiar
     const celValido=validarCelular(original);
     if(celValido){
       if(celValido!==original) corregidos.push({c,original,nuevo:celValido});
     } else {
-      invalidos.push({c,original});
+      aEliminar.push(c);
     }
   });
 
-  if(!corregidos.length&&!invalidos.length){
-    gMsg('No se encontró nada que limpiar: todos los celulares ya tienen el formato correcto (9 dígitos).');
+  if(!corregidos.length&&!aEliminar.length){
+    gMsg('No hay nada que corregir ni eliminar: todos los celulares ya son válidos.');
     return;
   }
 
   const detalle=[
-    ...corregidos.slice(0,10).map(x=>'• '+x.c.nombre+': "'+x.original+'" → "'+x.nuevo+'"'),
-    ...invalidos.slice(0,10).map(x=>'• '+x.c.nombre+': "'+x.original+'" no es un celular válido → se vaciará'),
+    ...corregidos.slice(0,10).map(x=>'• CORREGIR — '+x.c.nombre+': "'+x.original+'" → "'+x.nuevo+'"'),
+    ...aEliminar.slice(0,10).map(c=>{
+      const ag=ST.users.find(x=>x.id===c.agenteId);
+      return '• ELIMINAR — '+c.nombre+': celular "'+(c.celular||'(vacío)')+'" — '+(ETAPAS[c.etapa]?.label||'')+' — '+(ag?ag.nombre:'—');
+    }),
   ].join('\n');
-  const totalReal=corregidos.length+invalidos.length;
-  const totalMostrado=Math.min(corregidos.length,10)+Math.min(invalidos.length,10);
+  const totalReal=corregidos.length+aEliminar.length;
+  const totalMostrado=Math.min(corregidos.length,10)+Math.min(aEliminar.length,10);
 
   const ok=confirm(
     'Se revisó la columna Celular de los '+ST.conductores.length+' conductores.\n\n'
-    +corregidos.length+' celular(es) con formato distinto se corregirán (se quitará el prefijo 51, espacios, guiones, etc.).\n'
-    +invalidos.length+' celular(es) NO son números de celular válidos (no tienen 9 dígitos empezando en 9, como los celulares en Perú) y se vaciarán, quedando pendientes de corrección manual.\n\n'
+    +corregidos.length+' celular(es) con formato corregible se ARREGLARÁN (sin tocar al conductor).\n'
+    +aEliminar.length+' conductor(es) NO tienen forma de tener un celular válido (9 dígitos empezando en 9) y se ELIMINARÁN POR COMPLETO.\n\n'
     +detalle+(totalReal>totalMostrado?'\n… y '+(totalReal-totalMostrado)+' más.':'')
-    +'\n\n⚠️ Esta acción no se puede deshacer. ¿Confirmas la limpieza?'
+    +'\n\n⚠️ Esta acción no se puede deshacer. ¿Confirmas?'
   );
   if(!ok) return;
 
   corregidos.forEach(x=>{ x.c.celular=x.nuevo; _marcarSucio(x.c.id); });
-  invalidos.forEach(x=>{
-    x.c.historial=x.c.historial||[];
-    x.c.historial.push({fecha:hoy(),etapa:x.c.etapa,nota:'Celular inválido eliminado por limpieza de datos (era: "'+x.original+'")',usuario:u.nombre});
-    x.c.celular='';
-    _marcarSucio(x.c.id);
-  });
+
+  if(aEliminar.length){
+    if(!ST._eliminados) ST._eliminados=new Set();
+    const idsEliminar=new Set(aEliminar.map(c=>c.id));
+    idsEliminar.forEach(id=>ST._eliminados.add(id));
+    ST.conductores=ST.conductores.filter(c=>!idsEliminar.has(c.id));
+  }
   _dupIndex=null; // los celulares cambiaron: el índice de duplicados debe recalcularse
   renderSec();
-  gMsg('✅ Limpieza completa: '+corregidos.length+' celular(es) corregido(s), '+invalidos.length+' vaciado(s) por no ser válidos.');
+  gMsg('✅ '+corregidos.length+' celular(es) corregido(s), '+aEliminar.length+' conductor(es) eliminado(s) por no tener celular válido.');
   saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
 }
 
@@ -2998,7 +3166,7 @@ function renderSupervisionMerged(){
   return '<div>'
     +'<div class="section-hdr" style="margin-bottom:12px">'
     +'<div style="font-size:15px;font-weight:700"><i class="ti ti-eye" style="color:var(--blue);margin-right:6px"></i>Supervisión — Vista consolidada</div>'
-    +'<div style="display:flex;gap:8px"><button class="btn btn-sm" onclick="renderSec()"><i class="ti ti-refresh"></i> Actualizar</button><button class="btn btn-sm" style="background:#EFF6FF;border-color:#BFDBFE;color:#1D4ED8" onclick="limpiarCelularesSupervisor()"><i class="ti ti-phone-check"></i> Limpiar celulares</button><button class="btn btn-sm" style="background:#FEF2F2;border-color:#FECACA;color:#DC2626" onclick="eliminarDuplicadosSupervisor()"><i class="ti ti-users-minus"></i> Eliminar duplicados</button></div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-sm" onclick="renderSec()"><i class="ti ti-refresh"></i> Actualizar</button><button class="btn btn-sm" style="background:#FEF2F2;border-color:#FECACA;color:#DC2626" onclick="eliminarDuplicadosSupervisor()"><i class="ti ti-users-minus"></i> Eliminar duplicados</button><button class="btn btn-sm" style="background:#FEF2F2;border-color:#FECACA;color:#DC2626" onclick="eliminarSinCelularValidoSupervisor()"><i class="ti ti-phone-x"></i> Corregir/Eliminar celulares</button></div>'
     +'</div>'
     +'<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:1rem">'+kpiCards+'</div>'
     +filtersHTML
@@ -3724,7 +3892,10 @@ function _procesarBackupExcel(matrix,header){
   for(let r=1;r<matrix.length;r++){
     const fila=matrix[r]||[];
     const nombre=String(fila[idxNombre]||'').trim();
-    const cel=normCel(fila[idxCelular]);
+    const celRaw=fila[idxCelular];
+    const celValido=validarCelular(celRaw);      // 9 dígitos empezando en 9 (corrige formato/prefijo 51 automáticamente)
+    const cel=celValido||normCel(celRaw);        // si es válido, usa el corregido; si no, deja lo que haya para mostrarlo
+    const celInvalido=!celValido&&!!cel;         // hay algo escrito, pero no se puede convertir en un celular válido
     if(!nombre&&!cel){filasVacias++;continue;}
 
     const flota=_normalizarFlota(fila[idxFlota]||'');
@@ -3742,11 +3913,11 @@ function _procesarBackupExcel(matrix,header){
     const combo=cel+'|'+(agenteId||'');
     const yaExiste=cel.length>=7&&combosVistos.has(combo);
     if(yaExiste){
-      _cargaPreview.push({nombre,cel,flota,canal,agenteId,agenteCodigoOriginal:agenteId?'':agenteTexto,fecha:fechaContacto,fechaUltimo,etapa:etapaNum,dropout,motivoDropout,isDup:true,_row:r+1});
+      _cargaPreview.push({nombre,cel,flota,canal,agenteId,agenteCodigoOriginal:agenteId?'':agenteTexto,fecha:fechaContacto,fechaUltimo,etapa:etapaNum,dropout,motivoDropout,isDup:true,celInvalido,_row:r+1});
       continue;
     }
     if(cel.length>=7) combosVistos.add(combo);
-    _cargaPreview.push({nombre,cel,flota,canal,agenteId,agenteCodigoOriginal:agenteId?'':agenteTexto,fecha:fechaContacto,fechaUltimo,etapa:etapaNum,dropout,motivoDropout,isDup:false,_row:r+1});
+    _cargaPreview.push({nombre,cel,flota,canal,agenteId,agenteCodigoOriginal:agenteId?'':agenteTexto,fecha:fechaContacto,fechaUltimo,etapa:etapaNum,dropout,motivoDropout,isDup:false,celInvalido,_row:r+1});
   }
 
   _renderCargaPreview(filasVacias);
@@ -3770,7 +3941,9 @@ function _procesarReporteChat(matrix){
     const celRaw=fila[14];    // O
     const agentesRaw=String(fila[17]||'').trim(); // R
 
-    const cel=normCel(celRaw);
+    const celValido=validarCelular(celRaw);
+    const cel=celValido||normCel(celRaw);
+    const celInvalido=!celValido&&!!cel;
     if(!nombre&&!cel){filasVacias++;continue;}
 
     const flota=_extraerFlotaDeEtiquetas(etiquetas);
@@ -3784,7 +3957,7 @@ function _procesarReporteChat(matrix){
       const yaExiste=cel.length>=7&&combosVistos.has(combo);
       if(yaExiste){
         // Esa misma afiliadora ya tiene este celular: no se crea ni se modifica nada.
-        _cargaPreview.push({nombre,cel,flota,canal:'Meta',agenteId,agenteCodigoOriginal:tok||'',fecha,isDup:true,_row:r+1});
+        _cargaPreview.push({nombre,cel,flota,canal:'Meta',agenteId,agenteCodigoOriginal:tok||'',fecha,isDup:true,celInvalido,_row:r+1});
         return;
       }
       if(cel.length>=7) combosVistos.add(combo);
@@ -3792,7 +3965,7 @@ function _procesarReporteChat(matrix){
         nombre,cel,flota,canal:'Meta',
         agenteId,
         agenteCodigoOriginal:tok||'',
-        fecha,isDup:false,_row:r+1
+        fecha,isDup:false,celInvalido,_row:r+1
       });
     });
   }
@@ -3843,7 +4016,10 @@ function _procesarRows(rows){
 
   rows.forEach((row,i)=>{
     const nombre=(row.nombre||row['name']||'').trim();
-    const cel=normCel(row.celular||row['celular']||row['telefono']||row['phone']||'');
+    const celRaw=row.celular||row['celular']||row['telefono']||row['phone']||'';
+    const celValido=validarCelular(celRaw);
+    const cel=celValido||normCel(celRaw);
+    const celInvalido=!celValido&&!!cel;
     if(!nombre&&!cel){err++;return;}
     const flota=_normalizarFlota(row.flota||'');
     const canal=_normalizarCanal(row.canal||'');
@@ -3852,7 +4028,7 @@ function _procesarRows(rows){
     const combo=cel+'|'+(agenteId||'');
     const isDup=cel.length>=7&&combosVistos.has(combo);
     if(!isDup&&cel.length>=7) combosVistos.add(combo);
-    _cargaPreview.push({nombre,cel,flota,canal,agenteId,fecha,isDup,_row:i+2});
+    _cargaPreview.push({nombre,cel,flota,canal,agenteId,fecha,isDup,celInvalido,_row:i+2});
   });
 
   _renderCargaPreview(err);
@@ -3870,12 +4046,14 @@ function _renderCargaPreview(filasVacias){
   const nuevos=_cargaPreview.filter(r=>!r.isDup);
   const sinFlota=nuevos.filter(r=>!r.flota).length;
   const sinAgente=nuevos.filter(r=>!r.agenteId&&r.agenteCodigoOriginal).length;
-  const ok=nuevos.length;
+  const celInvalido=nuevos.filter(r=>r.celInvalido).length;
+  const ok=nuevos.filter(r=>!r.celInvalido).length;
 
   const agentes=ST.users.filter(u=>u.role==='agente');
   stats.innerHTML=`<div style="display:flex;gap:12px;flex-wrap:wrap">
     <span style="color:#166534;font-weight:700">✓ ${ok} nuevos (se importarán)</span>
     <span style="color:#92400E;font-weight:700">⏭ ${dup} ya registrados (no se importarán, no se modifican)</span>
+    ${celInvalido>0?`<span style="color:var(--err);font-weight:700">✕ ${celInvalido} con celular inválido (no se importarán, ej: no tienen 9 dígitos empezando en 9)</span>`:''}
     ${sinFlota>0?`<span style="color:var(--err)">${sinFlota} sin flota detectada</span>`:''}
     ${sinAgente>0?`<span style="color:var(--err)">${sinAgente} con código de agente no reconocido</span>`:''}
     ${filasVacias>0?`<span style="color:var(--text2)">${filasVacias} filas vacías ignoradas</span>`:''}
@@ -3894,13 +4072,13 @@ function _renderCargaPreview(filasVacias){
       const agenteLabel=r.isDup?'—':(r.agenteId
         ?(agentes.find(a=>a.id===r.agenteId)?.nombre.split(' ')[0]||'—')
         :(r.agenteCodigoOriginal?`<span style="color:var(--err)">'${r.agenteCodigoOriginal}' ?</span>`:'Sin asignar'));
-      return `<tr style="background:${r.isDup?'#FEF3C7':''}">
-      <td style="padding:3px 8px;font-size:11px;border-bottom:0.5px solid var(--border)">${r.nombre||'—'}${r.isDup?' <span style="color:#92400E;font-size:9px">YA REGISTRADO</span>':''}</td>
-      <td style="padding:3px 8px;font-size:11px;border-bottom:0.5px solid var(--border);text-align:center">${r.cel||'—'}</td>
+      return `<tr style="background:${r.isDup?'#FEF3C7':r.celInvalido?'#FEE2E2':''}">
+      <td style="padding:3px 8px;font-size:11px;border-bottom:0.5px solid var(--border)">${r.nombre||'—'}${r.isDup?' <span style="color:#92400E;font-size:9px">YA REGISTRADO</span>':''}${r.celInvalido?' <span style="color:#B91C1C;font-size:9px">CELULAR INVÁLIDO</span>':''}</td>
+      <td style="padding:3px 8px;font-size:11px;border-bottom:0.5px solid var(--border);text-align:center${r.celInvalido?';color:#B91C1C;font-weight:600':''}">${r.cel||'—'}</td>
       <td style="padding:3px 8px;font-size:11px;border-bottom:0.5px solid var(--border);text-align:center">${r.isDup?'—':(r.flota||'<span style="color:var(--err)">?</span>')}</td>
       <td style="padding:3px 8px;font-size:11px;border-bottom:0.5px solid var(--border);text-align:center">${agenteLabel}</td>
       <td style="padding:3px 8px;font-size:11px;border-bottom:0.5px solid var(--border);text-align:center">${r.isDup?'—':r.fecha}</td>
-    </tr>`;
+      </tr>`;
     }).join('')
     +(_cargaPreview.length>50?`<tr><td colspan="5" style="padding:6px;text-align:center;color:var(--text2);font-size:11px">... y ${_cargaPreview.length-50} más</td></tr>`:'')
     +'</tbody></table>';
