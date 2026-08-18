@@ -141,11 +141,24 @@ function diasTag(d){const n=parseInt(d)||0;if(n===0)return '<span class="dtag d0
 const LS_KEY='leads_local_v5';
 
 // Normaliza un número de celular para comparar/buscar: solo dígitos, sin prefijo de país (51 Perú, 591 Bolivia)
+// normCel: extrae solo dígitos y recorta el prefijo de país si viene incluido.
+// Se usa para BUSCAR/COMPARAR celulares (acepta números parciales, ej. mientras se escribe en el buscador).
 function normCel(v){
   let d=String(v||'').replace(/\D/g,'');
   if(d.length>9&&d.startsWith('591'))d=d.slice(3);
   else if(d.length>9&&d.startsWith('51'))d=d.slice(2);
   return d;
+}
+// validarCelular: para VALIDAR un celular nuevo antes de guardarlo.
+// Debe quedar en exactamente 9 dígitos Y empezar en "9" (así son SIEMPRE los celulares en Perú;
+// los fijos, RUCs u otros números no arrancan en 9). Si viene con el prefijo de país "51"
+// (ej. 51987654321, 11 dígitos), se toma desde el tercer número en adelante (el "9"), descartando el "51".
+// Cualquier otro resultado que no sea de 9 dígitos empezando en 9 NO es un celular válido → devuelve null.
+function validarCelular(v){
+  let d=String(v||'').replace(/\D/g,'');
+  if(d.length===11&&d.startsWith('51'))d=d.slice(2);
+  else if(d.length===12&&d.startsWith('591'))d=d.slice(3);
+  return (d.length===9&&d.startsWith('9'))?d:null;
 }
 // ¿Este conductor comparte celular con otro conductor ya registrado (por otra afiliadora u otra vez)?
 // Solo cuenta como duplicado si flota, canal o agente son DISTINTOS.
@@ -961,7 +974,7 @@ function modalNuevo(){
       <div class="card-title"><i class="ti ti-user-plus" style="color:var(--blue)"></i> Nuevo conductor</div>
       <div class="g2">
         <div class="fg"><label>Nombre completo *</label><input type="text" id="cn-n" placeholder="Nombre Apellido" autofocus></div>
-        <div class="fg"><label>Celular *</label><input type="tel" id="cn-cel" placeholder="Ej: 999 888 777" maxlength="15"></div>
+        <div class="fg"><label>Celular *</label><input type="tel" id="cn-cel" placeholder="Ej: 999888777" maxlength="11" inputmode="numeric" oninput="this.value=this.value.replace(/\D/g,'')"></div>
       </div>
       <div class="g2">
         <div class="fg"><label>Fecha de contacto</label><input type="date" id="cn-f" value="${hoy()}"></div>
@@ -989,6 +1002,8 @@ async function guardarC(){
   const err=document.getElementById('cn-err');
   if(!n){err.textContent='El nombre es obligatorio.';return;}
   if(!cel){err.textContent='El celular es obligatorio.';return;}
+  const celValido=validarCelular(cel);
+  if(!celValido){err.textContent='⚠ El celular debe tener 9 dígitos y empezar en 9 (ej: 999888777), así son los celulares en Perú. Si lo escribiste con el prefijo 51 (ej: 51999888777), se toma automáticamente desde el 9. Revisa el número, no parece un celular válido.';return;}
   if(!fl){err.textContent='Selecciona una flota.';return;}
   if(!ca){err.textContent='Selecciona un canal.';return;}
 
@@ -1010,7 +1025,7 @@ async function guardarC(){
 
   const nuevoId='c'+Date.now();
   ST.conductores.push({
-    id:nuevoId,nombre:n,celular:cel,flota:fl,canal:ca,agenteId,
+    id:nuevoId,nombre:n,celular:celValido,flota:fl,canal:ca,agenteId,
     fechaContacto:f,etapa:0,dropout:false,motivoDropout:'',
     historial:[{fecha:f,etapa:0,nota:nota||'Primer contacto',usuario:u.nombre}],
   });
@@ -2358,14 +2373,20 @@ function savePin(uid){
 function editarCelular(id, val){
   const c=ST.conductores.find(x=>x.id===id);
   if(!c)return;
-  const norm=normCel(val);
+  const celValido=validarCelular(val);
+  if(!celValido){
+    gMsg('⚠ "'+val+'" no es un celular válido (debe tener 9 dígitos y empezar en 9, ej: 999888777). No se guardó el cambio.');
+    renderSec();
+    return;
+  }
+  const norm=normCel(celValido);
   const dupMismoAgente=norm.length>=7?ST.conductores.find(x=>x.id!==id&&normCel(x.celular)===norm&&x.agenteId===c.agenteId):null;
   if(dupMismoAgente){
     gMsg('⚠ Ya tienes registrado ese celular en "'+dupMismoAgente.nombre+'". No se guardó el cambio.');
     renderSec();
     return;
   }
-  c.celular=val.trim();
+  c.celular=celValido;
   const dup=norm.length>=7?ST.conductores.find(x=>x.id!==id&&normCel(x.celular)===norm):null;
   _marcarSucio(id);
   saveBin();
@@ -2539,7 +2560,7 @@ function generarFilasLista(lista){
       +'<td style="font-size:11px">'
       +(isMkt
         ?(c.celular||'—')
-        :'<input type="tel" value="'+(c.celular||'')+'" onchange="editarCelular(\'' +c.id+ '\',this.value)" style="border:1px solid var(--border2);border-radius:var(--radius-sm);padding:2px 5px;font-size:11px;width:110px;background:var(--bg2)">'
+        :'<input type="tel" value="'+(c.celular||'')+'" maxlength="11" inputmode="numeric" oninput="this.value=this.value.replace(/\D/g,\'\')" onchange="editarCelular(\'' +c.id+ '\',this.value)" style="border:1px solid var(--border2);border-radius:var(--radius-sm);padding:2px 5px;font-size:11px;width:110px;background:var(--bg2)">'
       )+'</td>'
       +'<td>'+fSel+'</td>'
       +'<td>'
@@ -2801,6 +2822,64 @@ async function eliminarDuplicadosSupervisor(){
   saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
 }
 
+// ── LIMPIEZA DE CELULARES (solo Supervisor/Admin) ──────────
+// Revisa TODOS los conductores ya cargados en el sistema:
+// - Si el celular tiene un formato corregible (espacios, guiones, o el prefijo de país "51"), lo corrige
+//   a los 9 dígitos reales (ej: "51 999-888-777" → "999888777").
+// - Si NO se puede convertir a un celular válido de 9 dígitos (es basura, texto, un número de otro tipo, etc.),
+//   se vacía el campo (no se inventa un número), dejando registro en el historial del conductor.
+async function limpiarCelularesSupervisor(){
+  const u=ST.users.find(x=>x.id===ST.session);
+  if(!u||u.role!=='admin'){gMsg('Solo el Supervisor puede limpiar los celulares.');return;}
+
+  const corregidos=[]; // formato distinto, pero sí se pudo dejar en 9 dígitos válidos
+  const invalidos=[];  // no es un celular válido: se vacía
+
+  ST.conductores.forEach(c=>{
+    const original=(c.celular||'').trim();
+    if(!original) return; // ya está vacío, nada que limpiar
+    const celValido=validarCelular(original);
+    if(celValido){
+      if(celValido!==original) corregidos.push({c,original,nuevo:celValido});
+    } else {
+      invalidos.push({c,original});
+    }
+  });
+
+  if(!corregidos.length&&!invalidos.length){
+    gMsg('No se encontró nada que limpiar: todos los celulares ya tienen el formato correcto (9 dígitos).');
+    return;
+  }
+
+  const detalle=[
+    ...corregidos.slice(0,10).map(x=>'• '+x.c.nombre+': "'+x.original+'" → "'+x.nuevo+'"'),
+    ...invalidos.slice(0,10).map(x=>'• '+x.c.nombre+': "'+x.original+'" no es un celular válido → se vaciará'),
+  ].join('\n');
+  const totalReal=corregidos.length+invalidos.length;
+  const totalMostrado=Math.min(corregidos.length,10)+Math.min(invalidos.length,10);
+
+  const ok=confirm(
+    'Se revisó la columna Celular de los '+ST.conductores.length+' conductores.\n\n'
+    +corregidos.length+' celular(es) con formato distinto se corregirán (se quitará el prefijo 51, espacios, guiones, etc.).\n'
+    +invalidos.length+' celular(es) NO son números de celular válidos (no tienen 9 dígitos empezando en 9, como los celulares en Perú) y se vaciarán, quedando pendientes de corrección manual.\n\n'
+    +detalle+(totalReal>totalMostrado?'\n… y '+(totalReal-totalMostrado)+' más.':'')
+    +'\n\n⚠️ Esta acción no se puede deshacer. ¿Confirmas la limpieza?'
+  );
+  if(!ok) return;
+
+  corregidos.forEach(x=>{ x.c.celular=x.nuevo; _marcarSucio(x.c.id); });
+  invalidos.forEach(x=>{
+    x.c.historial=x.c.historial||[];
+    x.c.historial.push({fecha:hoy(),etapa:x.c.etapa,nota:'Celular inválido eliminado por limpieza de datos (era: "'+x.original+'")',usuario:u.nombre});
+    x.c.celular='';
+    _marcarSucio(x.c.id);
+  });
+  _dupIndex=null; // los celulares cambiaron: el índice de duplicados debe recalcularse
+  renderSec();
+  gMsg('✅ Limpieza completa: '+corregidos.length+' celular(es) corregido(s), '+invalidos.length+' vaciado(s) por no ser válidos.');
+  saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
+}
+
 function renderSupervisionMerged(){
   const curU=ST.users.find(x=>x.id===ST.session);
   const isA=curU&&curU.role==='admin';
@@ -2919,7 +2998,7 @@ function renderSupervisionMerged(){
   return '<div>'
     +'<div class="section-hdr" style="margin-bottom:12px">'
     +'<div style="font-size:15px;font-weight:700"><i class="ti ti-eye" style="color:var(--blue);margin-right:6px"></i>Supervisión — Vista consolidada</div>'
-    +'<div style="display:flex;gap:8px"><button class="btn btn-sm" onclick="renderSec()"><i class="ti ti-refresh"></i> Actualizar</button><button class="btn btn-sm" style="background:#FEF2F2;border-color:#FECACA;color:#DC2626" onclick="eliminarDuplicadosSupervisor()"><i class="ti ti-users-minus"></i> Eliminar duplicados</button></div>'
+    +'<div style="display:flex;gap:8px"><button class="btn btn-sm" onclick="renderSec()"><i class="ti ti-refresh"></i> Actualizar</button><button class="btn btn-sm" style="background:#EFF6FF;border-color:#BFDBFE;color:#1D4ED8" onclick="limpiarCelularesSupervisor()"><i class="ti ti-phone-check"></i> Limpiar celulares</button><button class="btn btn-sm" style="background:#FEF2F2;border-color:#FECACA;color:#DC2626" onclick="eliminarDuplicadosSupervisor()"><i class="ti ti-users-minus"></i> Eliminar duplicados</button></div>'
     +'</div>'
     +'<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:1rem">'+kpiCards+'</div>'
     +filtersHTML
@@ -3360,7 +3439,7 @@ function editarConductorAdmin(id){
         <div class="fg" style="grid-column:1/-1"><label>Nombre</label>
           <input id="ea-nombre" value="${c.nombre||''}" style="width:100%"></div>
         <div class="fg"><label>Celular</label>
-          <input id="ea-cel" value="${c.celular||''}"></div>
+          <input id="ea-cel" value="${c.celular||''}" maxlength="11" inputmode="numeric" oninput="this.value=this.value.replace(/\D/g,'')"></div>
         <div class="fg"><label>Fecha contacto</label>
           <input type="date" id="ea-fecha" value="${c.fechaContacto||''}"></div>
         <div class="fg"><label>Flota</label>
@@ -3392,8 +3471,10 @@ async function guardarEdicionAdmin(id){
   const fechaAfil=document.getElementById('ea-fechaafil')?.value;
   const err=document.getElementById('ea-err');
   if(!n){err.textContent='El nombre es obligatorio.';return;}
+  const celValido=validarCelular(cel);
+  if(!celValido){err.textContent='⚠ El celular debe tener 9 dígitos y empezar en 9 (ej: 999888777). Revisa el número, no parece válido.';return;}
   // Bloquea si el celular ya existe bajo el MISMO agente que se está asignando; permite (con aviso) si es de otra afiliadora
-  const celNorm=normCel(cel);
+  const celNorm=normCel(celValido);
   const dupMismoAgente=celNorm.length>=7?ST.conductores.find(x=>x.id!==id&&normCel(x.celular)===celNorm&&x.agenteId===agenteId):null;
   if(dupMismoAgente){
     err.textContent='⚠ Ese celular ya está registrado por esta misma afiliadora en "'+dupMismoAgente.nombre+'".';
@@ -3403,7 +3484,7 @@ async function guardarEdicionAdmin(id){
   const dup=celNorm.length>=7?ST.conductores.find(x=>x.id!==id&&normCel(x.celular)===celNorm):null;
   // Apply changes
   c.nombre=n;
-  c.celular=cel;
+  c.celular=celValido;
   c.fechaContacto=fecha||c.fechaContacto;
   c.flota=flota;
   c.canal=canal;
@@ -3831,11 +3912,13 @@ async function importarConductoresMasivo(){
   if(btn){btn.disabled=true;btn.textContent='Importando...';}
 
   const ts=Date.now();
-  let agregados=0, omitidos=0;
+  let agregados=0, omitidos=0, invalidos=0;
   const u=ST.users.find(x=>x.id===ST.session);
 
   _cargaPreview.forEach((row,i)=>{
     if(row.isDup){omitidos++;return;} // esa misma afiliadora ya lo tiene registrado: no se toca, no se importa
+    const celValido=validarCelular(row.cel);
+    if(!celValido){invalidos++;return;} // el celular no tiene 9 dígitos válidos: no se importa
     const etapa=row.etapa||0;
     const dropout=row.dropout||false;
     const motivoDropout=row.motivoDropout||'';
@@ -3847,7 +3930,7 @@ async function importarConductoresMasivo(){
     ST.conductores.push({
       id:'cm_'+ts+'_'+i,
       nombre:row.nombre,
-      celular:row.cel,
+      celular:celValido,
       flota:row.flota,
       canal:row.canal,
       agenteId:row.agenteId||ST.session,
@@ -3864,7 +3947,7 @@ async function importarConductoresMasivo(){
   _cargaPreview=[];
   closeM();
   renderSec();
-  gMsg('✅ '+agregados+' conductores nuevos importados'+(omitidos>0?' ('+omitidos+' ya registrados, omitidos sin cambios)':'')+'.');
+  gMsg('✅ '+agregados+' conductores nuevos importados'+(omitidos>0?' ('+omitidos+' ya registrados, omitidos sin cambios)':'')+(invalidos>0?' ('+invalidos+' con celular inválido, no importados)':'')+'.');
   saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
 }
 
