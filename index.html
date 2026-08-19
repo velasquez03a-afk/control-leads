@@ -239,6 +239,7 @@ const DEFAULT_USERS=[
   {id:'u2',nombre:'AndreaC',pin:'1234',role:'agente'},
   {id:'u3',nombre:'Jennifer',pin:'1234',role:'agente'},
   {id:'u4',nombre:'Rommy',pin:'1234',role:'agente'},
+  {id:'u5',nombre:'Denisse',pin:'1234',role:'agente'},
   {id:'mkt',nombre:'Marketing',pin:'mkt2024',role:'marketing'},
   {id:'admin',nombre:'Supervisor',pin:'admin123',role:'admin'},
   {id:'rep',nombre:'Reportes',pin:'rep2024',role:'reportes'},
@@ -519,7 +520,8 @@ async function initBin(){
   // Congelar en el historial las semanas de "Bolsa" que ya cerraron y todavía no tenían foto guardada
   const _huboManual=sembrarBolsaHistoricoManual();
   const _huboNuevasBolsa=capturarBolsaSemanasVencidas();
-  if(_cambiosInactivos>0||_huboManual||_huboNuevasBolsa) await saveBin();
+  const _huboDenisse=crearAgenteDenisse();
+  if(_cambiosInactivos>0||_huboManual||_huboNuevasBolsa||_huboDenisse) await saveBin();
   syncBadge();
   renderSec();
   // Si la primera conexión falló (ej. señal inestable justo al abrir), reintenta pronto en vez de
@@ -770,6 +772,20 @@ function sembrarBolsaHistoricoManual(){
     huboNuevas=true;
   });
   return huboNuevas;
+}
+
+// ── NUEVA AGENTE: Denisse (afiliadora) ──────────────────────
+// Como el sistema ya tiene usuarios guardados en Firebase, agregarla solo a DEFAULT_USERS no
+// alcanza (esa lista solo se usa para instalaciones nuevas, vacías). Esta función la agrega a la
+// base YA EXISTENTE, una sola vez: si ya existe una usuaria con este nombre, no hace nada.
+function crearAgenteDenisse(){
+  ST.users=ST.users||[];
+  if(ST.users.some(u=>u.nombre.trim().toLowerCase()==='denisse')) return false; // ya existe: no duplicar
+  const nueva={id:'u_denisse',nombre:'Denisse',pin:'1234',role:'agente'};
+  const idxRommy=ST.users.findIndex(u=>u.nombre.trim().toLowerCase()==='rommy');
+  if(idxRommy>=0) ST.users.splice(idxRommy+1,0,nueva); // justo debajo de Rommy
+  else ST.users.push(nueva); // si no encuentra a Rommy, se agrega al final por seguridad
+  return true;
 }
 
 
