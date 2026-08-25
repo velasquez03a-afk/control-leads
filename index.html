@@ -520,8 +520,9 @@ async function initBin(){
   // Congelar en el historial las semanas de "Bolsa" que ya cerraron y todavía no tenían foto guardada
   const _huboManual=sembrarBolsaHistoricoManual();
   const _huboNuevasBolsa=capturarBolsaSemanasVencidas();
+  const _huboCompletado=completarCamposBolsaHistorial();
   const _huboDenisse=crearAgenteDenisse();
-  if(_cambiosInactivos>0||_huboManual||_huboNuevasBolsa||_huboDenisse) await saveBin();
+  if(_cambiosInactivos>0||_huboManual||_huboNuevasBolsa||_huboCompletado||_huboDenisse) await saveBin();
   syncBadge();
   renderSec();
   // Si la primera conexión falló (ej. señal inestable justo al abrir), reintenta pronto en vez de
@@ -709,6 +710,31 @@ function bolsaSemana(semKey,flota){
   });
   return n;
 }
+// "En proceso": conductores en las primeras etapas (Contacto, Info enviada, Docs recibidos,
+// Formulario), antes de llegar a Bolsa. Snapshot al cierre del domingo, igual que Bolsa.
+const ETAPAS_EN_PROCESO=[0,1,2,3];
+function enProcesoSemana(semKey,flota){
+  const fechaLimite=finDeSemana(semKey);
+  let n=0;
+  ST.conductores.forEach(c=>{
+    if(flota&&c.flota!==flota) return;
+    const est=estadoAlaFecha(c,fechaLimite);
+    if(!est||est.dropout) return;
+    if(ETAPAS_EN_PROCESO.includes(est.etapa)) n++;
+  });
+  return n;
+}
+// "Chats iniciados": conductores cuyo PRIMER contacto ocurrió dentro de esa semana (no es un
+// snapshot al domingo, es un conteo de "cuántos entraron nuevos esa semana").
+function chatsIniciadosSemana(semKey,flota){
+  let n=0;
+  ST.conductores.forEach(c=>{
+    if(flota&&c.flota!==flota) return;
+    if(!c.fechaContacto) return;
+    if(semDia(c.fechaContacto)===semKey) n++;
+  });
+  return n;
+}
 // Conversión: conductores que se afiliaron (llegaron a etapa 7) dentro de esa semana
 function convertidosSemana(semKey,flota){
   let n=0;
@@ -737,11 +763,46 @@ function capturarBolsaSemanasVencidas(){
     const domingo=finDeSemana(semKey);
     if(domingo>=hoy()) return; // esta semana todavía no cierra (hoy es su domingo o antes): no se congela todavía
     const porFlota={};
-    FLOTAS.forEach(f=>{ porFlota[f]={bolsa:bolsaSemana(semKey,f),convertidos:convertidosSemana(semKey,f)}; });
+    FLOTAS.forEach(f=>{ porFlota[f]={
+      chatsIniciados:chatsIniciadosSemana(semKey,f),
+      enProceso:enProcesoSemana(semKey,f),
+      bolsa:bolsaSemana(semKey,f),
+      convertidos:convertidosSemana(semKey,f)
+    }; });
     ST.bolsaHistorial[semKey]={capturadoEl:hoy(),porFlota};
     huboNuevas=true;
   });
   return huboNuevas;
+}
+
+// ── COMPLETAR SEMANAS YA CONGELADAS CON LOS NUEVOS CAMPOS ──────────────────
+// Semanas que ya se habían congelado ANTES de agregar "Chats iniciados" y "En proceso" solo tenían
+// Bolsa y Convertidos. Esta función completa esos dos campos nuevos UNA SOLA VEZ por semana que los
+// tenga faltantes — sin tocar Bolsa/Convertidos, que ya son correctos y quedan como estaban.
+// En las semanas cargadas manualmente (histórico previo al sistema) no se completan, porque no hay
+// forma de reconstruir esos números reales: se dejan en null y el reporte muestra "—".
+function completarCamposBolsaHistorial(){
+  ST.bolsaHistorial=ST.bolsaHistorial||{};
+  let huboCambios=false;
+  Object.keys(ST.bolsaHistorial).forEach(semKey=>{
+    const entry=ST.bolsaHistorial[semKey];
+    if(!entry||!entry.porFlota) return;
+    FLOTAS.forEach(f=>{
+      const pf=entry.porFlota[f];
+      if(!pf) return;
+      if(pf.chatsIniciados!==undefined&&pf.enProceso!==undefined) return; // ya completo
+      if(entry.manual){
+        // Histórico manual: no hay forma de reconstruirlo, se deja explícito que no está disponible
+        if(pf.chatsIniciados===undefined) pf.chatsIniciados=null;
+        if(pf.enProceso===undefined) pf.enProceso=null;
+      }else{
+        if(pf.chatsIniciados===undefined) pf.chatsIniciados=chatsIniciadosSemana(semKey,f);
+        if(pf.enProceso===undefined) pf.enProceso=enProcesoSemana(semKey,f);
+      }
+      huboCambios=true;
+    });
+  });
+  return huboCambios;
 }
 
 // ── HISTORIAL MANUAL DE BOLSA (semanas 27 a 31 de 2026) ────────────────────
@@ -767,7 +828,7 @@ function sembrarBolsaHistoricoManual(){
     const existente=ST.bolsaHistorial[semKey];
     if(existente&&existente.manual) return; // ya se cargó este dato manual antes: no repetir
     const porFlota={};
-    FLOTAS.forEach(f=>{ porFlota[f]={bolsa:datos[semKey][f]||0,convertidos:0}; });
+    FLOTAS.forEach(f=>{ porFlota[f]={chatsIniciados:null,enProceso:null,bolsa:datos[semKey][f]||0,convertidos:0}; });
     ST.bolsaHistorial[semKey]={capturadoEl:hoy(),porFlota,manual:true};
     huboNuevas=true;
   });
@@ -2331,8 +2392,8 @@ function renderReporteBolsa(){
   const nSemanas=parseInt(document.getElementById('bolsa-nsem')?.value)||8;
   const semanas=ultimasSemanas(nSemanas).reverse(); // de más antigua a más reciente, para leer de izq. a der.
 
-  const totalesBolsa={}, totalesConv={};
-  semanas.forEach(s=>{totalesBolsa[s]=0;totalesConv[s]=0;});
+  const totales={};
+  semanas.forEach(s=>{totales[s]={chats:0,proc:0,bolsa:0,conv:0};});
 
   // Para cada semana: si ya está congelada en ST.bolsaHistorial (semana cerrada), se usa ESE dato
   // fijo, sin recalcular. Si es la semana en curso (su domingo todavía no llega), se calcula en
@@ -2340,15 +2401,23 @@ function renderReporteBolsa(){
   const valor=(semKey,flota)=>{
     const cong=ST.bolsaHistorial&&ST.bolsaHistorial[semKey];
     if(cong&&cong.porFlota&&cong.porFlota[flota]) return cong.porFlota[flota];
-    return {bolsa:bolsaSemana(semKey,flota),convertidos:convertidosSemana(semKey,flota)};
+    return {
+      chatsIniciados:chatsIniciadosSemana(semKey,flota),
+      enProceso:enProcesoSemana(semKey,flota),
+      bolsa:bolsaSemana(semKey,flota),
+      convertidos:convertidosSemana(semKey,flota)
+    };
   };
   const esEnCurso=(semKey)=>!(ST.bolsaHistorial&&ST.bolsaHistorial[semKey]);
+  const fmtCelda=(n)=>n===null||n===undefined?'—':n;
 
   const filas=FLOTAS.map(flota=>{
     const porSemana=semanas.map(s=>{
       const v=valor(s,flota);
-      totalesBolsa[s]+=v.bolsa; totalesConv[s]+=v.convertidos;
-      return {b:v.bolsa,c:v.convertidos};
+      if(typeof v.chatsIniciados==='number') totales[s].chats+=v.chatsIniciados;
+      if(typeof v.enProceso==='number') totales[s].proc+=v.enProceso;
+      totales[s].bolsa+=v.bolsa; totales[s].conv+=v.convertidos;
+      return v;
     });
     return {flota,porSemana};
   });
@@ -2357,7 +2426,7 @@ function renderReporteBolsa(){
     <div style="padding:10px 14px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
       <div>
         <div style="font-size:13px;font-weight:700"><i class="ti ti-briefcase" style="color:#7C3AED;margin-right:4px"></i>Bolsa semanal por flota</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:2px">Conductores en Antecedentes, Entrevista Psi. o Capacitación al cierre de cada domingo (no incluye afiliados ni bajas). Cada semana que ya cerró queda guardada tal cual, para reflejar el comportamiento histórico real.</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">Chats iniciados: primer contacto esa semana · En proceso: Contacto/Info/Docs/Formulario · Bolsa: Antecedentes/Psi./Capacitación · Convertidos: se afiliaron esa semana. Cada semana que ya cerró queda guardada tal cual (cierre los domingos).</div>
       </div>
       <div class="fg" style="margin:0;max-width:160px">
         <label style="font-size:10px">Semanas a mostrar</label>
@@ -2370,20 +2439,20 @@ function renderReporteBolsa(){
       <thead>
         <tr style="background:var(--bg3)">
           <th rowspan="2" style="padding:6px 10px;text-align:left;font-size:11px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);position:sticky;left:0;background:var(--bg3)">Flota</th>
-          ${semanas.map(s=>`<th colspan="2" style="padding:4px 10px;font-size:10px;border-bottom:1px solid var(--border);border-left:1px solid var(--border);white-space:nowrap">${semRng(s)}${esEnCurso(s)?' <span style="color:#B45309;font-weight:700">(en curso)</span>':''}${(ST.bolsaHistorial&&ST.bolsaHistorial[s]&&ST.bolsaHistorial[s].manual)?' <span title="Cargado manualmente, no incluye dato de conversión" style="color:#7C3AED;font-weight:700">(manual)</span>':''}</th>`).join('')}
+          ${semanas.map(s=>`<th colspan="4" style="padding:4px 10px;font-size:10px;border-bottom:1px solid var(--border);border-left:1px solid var(--border);white-space:nowrap">${semRng(s)}${esEnCurso(s)?' <span style="color:#B45309;font-weight:700">(en curso)</span>':''}${(ST.bolsaHistorial&&ST.bolsaHistorial[s]&&ST.bolsaHistorial[s].manual)?' <span title="Cargado manualmente; Chats iniciados, En proceso y Conv. no están disponibles para estas semanas" style="color:#7C3AED;font-weight:700">(manual)</span>':''}</th>`).join('')}
         </tr>
         <tr style="background:var(--bg3)">
-          ${semanas.map(()=>`<th style="padding:3px 8px;font-size:9px;color:#7C3AED;border-bottom:1px solid var(--border);border-left:1px solid var(--border)">Bolsa</th><th style="padding:3px 8px;font-size:9px;color:#166534;border-bottom:1px solid var(--border)">Conv.</th>`).join('')}
+          ${semanas.map(()=>`<th style="padding:3px 6px;font-size:9px;color:#0369A1;border-bottom:1px solid var(--border);border-left:1px solid var(--border)">Chats</th><th style="padding:3px 6px;font-size:9px;color:#B45309;border-bottom:1px solid var(--border)">Proceso</th><th style="padding:3px 6px;font-size:9px;color:#7C3AED;border-bottom:1px solid var(--border)">Bolsa</th><th style="padding:3px 6px;font-size:9px;color:#166534;border-bottom:1px solid var(--border)">Conv.</th>`).join('')}
         </tr>
       </thead>
       <tbody>
         ${filas.map(fl=>`<tr>
           <td style="padding:5px 10px;font-size:12px;font-weight:600;border-bottom:0.5px solid var(--border);border-right:1px solid var(--border);white-space:nowrap;position:sticky;left:0;background:var(--bg1)"><span class="stag ${flotaC[fl.flota]}">${fl.flota}</span></td>
-          ${fl.porSemana.map(v=>`<td style="padding:5px 8px;font-size:12px;text-align:center;border-bottom:0.5px solid var(--border);border-left:1px solid var(--border);font-weight:700;color:#7C3AED">${v.b}</td><td style="padding:5px 8px;font-size:12px;text-align:center;border-bottom:0.5px solid var(--border);font-weight:700;color:#166534">${v.c}</td>`).join('')}
+          ${fl.porSemana.map(v=>`<td style="padding:5px 6px;font-size:12px;text-align:center;border-bottom:0.5px solid var(--border);border-left:1px solid var(--border);font-weight:700;color:#0369A1">${fmtCelda(v.chatsIniciados)}</td><td style="padding:5px 6px;font-size:12px;text-align:center;border-bottom:0.5px solid var(--border);font-weight:700;color:#B45309">${fmtCelda(v.enProceso)}</td><td style="padding:5px 6px;font-size:12px;text-align:center;border-bottom:0.5px solid var(--border);font-weight:700;color:#7C3AED">${v.bolsa}</td><td style="padding:5px 6px;font-size:12px;text-align:center;border-bottom:0.5px solid var(--border);font-weight:700;color:#166534">${v.convertidos}</td>`).join('')}
         </tr>`).join('')}
         <tr style="background:var(--bg3)">
           <td style="padding:5px 10px;font-size:12px;font-weight:700;border-right:1px solid var(--border);position:sticky;left:0;background:var(--bg3)">Total</td>
-          ${semanas.map(s=>`<td style="padding:5px 8px;font-size:12px;text-align:center;border-left:1px solid var(--border);font-weight:800;color:#7C3AED">${totalesBolsa[s]}</td><td style="padding:5px 8px;font-size:12px;text-align:center;font-weight:800;color:#166534">${totalesConv[s]}</td>`).join('')}
+          ${semanas.map(s=>`<td style="padding:5px 6px;font-size:12px;text-align:center;border-left:1px solid var(--border);font-weight:800;color:#0369A1">${totales[s].chats}</td><td style="padding:5px 6px;font-size:12px;text-align:center;font-weight:800;color:#B45309">${totales[s].proc}</td><td style="padding:5px 6px;font-size:12px;text-align:center;font-weight:800;color:#7C3AED">${totales[s].bolsa}</td><td style="padding:5px 6px;font-size:12px;text-align:center;font-weight:800;color:#166534">${totales[s].conv}</td>`).join('')}
         </tr>
       </tbody>
     </table></div>
