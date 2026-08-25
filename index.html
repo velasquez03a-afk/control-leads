@@ -3688,8 +3688,7 @@ function renderAfiliadoras(){
     return '<tr>'
       +'<td style="padding:7px 10px;border:0.5px solid #CBD5E1;font-weight:700;font-size:12px">'
       +'<div style="display:flex;align-items:center;gap:6px"><div class="avatar" style="width:26px;height:26px;font-size:10px">'+ini(ag.nombre)+'</div>'+ag.nombre+'</div></td>'
-      +tdN(nuevos,'#374151',false)
-      +tdN(enR.length,'#374151',true)
+      +tdN(nuevos,'#374151',true)
       +tdN(stContacto.activo,'#185FA5',false)
       +tdN(stContacto.noCalif,'#DC2626',false)
       +tdN(stContacto.enProceso,'#0891B2',false)
@@ -3711,7 +3710,6 @@ function renderAfiliadoras(){
   const compTotal='<tr style="background:#BFDBFE;font-weight:700">'
     +'<td style="padding:7px 10px;border:0.5px solid #CBD5E1;font-size:12px">TOTAL EQUIPO</td>'
     +tdN(gNew,'#374151',true)
-    +tdN(todosEnR.length,'#374151',true)
     +tdN(gStatsContacto.activo,'#185FA5',true)
     +tdN(gStatsContacto.noCalif,'#DC2626',true)
     +tdN(gStatsContacto.enProceso,'#0891B2',true)
@@ -3857,10 +3855,10 @@ function renderAfiliadoras(){
     +'</div>'
     // KPIs globales
     +'<div class="g4" style="margin-bottom:1rem">'
-    +'<div class="mcard"><div class="mval">'+todosEnR.length+'</div><div class="mlbl">Total actividad</div></div>'
-    +'<div class="mcard"><div class="mval" style="color:var(--blue)">'+gStats.activo+'</div><div class="mlbl">Activos en proceso</div></div>'
-    +'<div class="mcard"><div class="mval" style="color:var(--green)">'+gStats.afiliado+'</div><div class="mlbl">Afiliados</div><div class="msub" style="color:var(--green)">'+gPct+'% de meta</div></div>'
-    +'<div class="mcard"><div class="mval" style="color:var(--err)">'+gStats.noCalif+'</div><div class="mlbl">No continuaron</div></div>'
+    +'<div class="mcard"><div class="mval">'+gNew+'</div><div class="mlbl">Chats iniciados</div></div>'
+    +'<div class="mcard"><div class="mval" style="color:var(--blue)">'+gStatsContacto.activo+'</div><div class="mlbl">Activos en proceso</div></div>'
+    +'<div class="mcard"><div class="mval" style="color:var(--green)">'+gAfil+'</div><div class="mlbl">Afiliados</div><div class="msub" style="color:var(--green)">'+gPct+'% de meta</div></div>'
+    +'<div class="mcard"><div class="mval" style="color:var(--err)">'+gStatsContacto.noCalif+'</div><div class="mlbl">No continuaron</div></div>'
     +'</div>'
     // Tabla comparativa
     +'<div class="card" style="padding:0;overflow:hidden;margin-bottom:1rem">'
@@ -3868,7 +3866,7 @@ function renderAfiliadoras(){
     +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'
     +'<thead><tr>'
     +'<th style="'+hdS+';text-align:left">Afiliadora</th>'
-    +'<th style="'+hdS+'">Nuevos</th><th style="'+hdS+'">Total<br>actividad</th>'
+    +'<th style="'+hdS+'">Chats<br>iniciados</th>'
     +'<th style="'+hdS+'">Activos</th><th style="'+hdS+'">Bajas</th>'
     +'<th style="'+hdS+'">En proceso</th>'
     +'<th style="'+hdS+'">En Bolsa</th>'
