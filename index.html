@@ -828,22 +828,25 @@ function corregirCriterioBolsaAntiguo(){
   return huboCambios;
 }
 
-// ── LIMPIEZA INICIAL: quedarse solo con las últimas 4 semanas ──────────────
-// No tenemos datos confiables de "Bolsa" de antes (las semanas manuales cargadas antes, y una
-// semana con un pico artificial por una carga masiva sin fecha de contacto, no reflejan la
-// realidad). Se descarta todo el historial viejo UNA SOLA VEZ, dejando solo las últimas 4
-// semanas, y de ahí en adelante el sistema sigue acumulando el historial normalmente, semana
-// tras semana, sin volver a tocar esto.
+// ── LIMPIEZA INICIAL: quitar solo las semanas MANUALES (sin datos reales) ──
+// Las 5 semanas cargadas manualmente antes de que existiera este reporte no tienen Chats
+// iniciados ni En proceso (se ven como "—"), así que no sirven para evaluar Bolsa de verdad.
+// Se quitan esas semanas específicas UNA SOLA VEZ; las semanas que el sistema sí calculó
+// (con datos reales) se quedan igual, sin tocar. De ahí en adelante, el sistema sigue
+// congelando cada semana normalmente.
 function limpiarBolsaHistorialAntiguo(){
   ST.bolsaHistorial=ST.bolsaHistorial||{};
   if(ST.bolsaHistorial._limpiezaInicialHecha) return false; // ya se hizo esta limpieza antes: no se repite
-  const semanasAConservar=new Set(ultimasSemanas(4));
+  let huboCambios=false;
   Object.keys(ST.bolsaHistorial).forEach(semKey=>{
-    if(semKey==='_limpiezaInicialHecha') return;
-    if(!semanasAConservar.has(semKey)) delete ST.bolsaHistorial[semKey];
+    if(semKey.startsWith('_')) return; // marcas de control, no son semanas
+    if(ST.bolsaHistorial[semKey]&&ST.bolsaHistorial[semKey].manual){
+      delete ST.bolsaHistorial[semKey];
+      huboCambios=true;
+    }
   });
   ST.bolsaHistorial._limpiezaInicialHecha=true;
-  return true;
+  return true; // siempre true la primera vez, para que quede marcado y no se repita
 }
 
 // ── NUEVA AGENTE: Denisse (afiliadora) ──────────────────────
