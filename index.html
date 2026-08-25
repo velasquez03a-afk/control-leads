@@ -1948,8 +1948,6 @@ function tablaExcelFlota(flota, semanas_data, metaTotal, otrosMesesFilas){
         +(ci===0?'<td rowspan="'+CANALES.length+'" style="'+cellStyle+';'+semHL+';vertical-align:middle;text-align:center"><div style="font-weight:700;font-size:11px;color:#1e3a5f">Semana '+wNum+'</div><div style="font-size:10px;color:#374151;margin-top:3px">('+rng+')</div></td>':'')
         +'<td style="'+cellStyle+'">'+canal+'</td>'
         +'<td style="'+cellStyle+'">'+(cst.chats||0)+'</td>'
-        +'<td style="'+cellStyle+';color:#185FA5">'+(cst.ca||0)+'</td>'
-        +'<td style="'+cellStyle+';color:#633806">'+(cst.cn||0)+'</td>'
         +'<td style="'+cellStyle+';color:#166534">'+(cst.nr||0)+'</td>'
         +'<td style="'+cellStyle+';color:#A32D2D">'+(cst.nd||0)+'</td>'
         +'<td style="'+cellStyle+';color:#0891B2">'+(cst.proc||0)+'</td>'
@@ -1985,8 +1983,7 @@ function tablaExcelFlota(flota, semanas_data, metaTotal, otrosMesesFilas){
     const ct=canalTots[canal];
     rows+=`<tr style="${totHL}">
       <td style="${cellStyle};${totHL};font-style:italic" colspan="2">Total ${canal}</td>
-      <td style="${cellStyle};${totHL}">${_tieneCSContacto?(chatsByCanal[canal]||0):(ct.chats||0)}</td><td style="${cellStyle};${totHL};color:#185FA5">${ct.ca||0}</td>
-      <td style="${cellStyle};${totHL};color:#633806">${ct.cn||0}</td><td style="${cellStyle};${totHL};color:#166534">${ct.nr||0}</td>
+      <td style="${cellStyle};${totHL}">${_tieneCSContacto?(chatsByCanal[canal]||0):(ct.chats||0)}</td><td style="${cellStyle};${totHL};color:#166534">${ct.nr||0}</td>
       <td style="${cellStyle};${totHL};color:#A32D2D">${ct.nd||0}</td><td style="${cellStyle};${totHL};color:#0891B2">${ct.proc||0}</td><td style="${cellStyle};${totHL};background:#EFF6FF">${ct.pre||0}</td>
       <td style="${cellStyle};${totHL};color:#5B21B6">${ct.ant||0}</td>
       <td style="${cellStyle};${totHL};color:#A32D2D">${ct.desaprobK||0}</td>
@@ -2003,8 +2000,6 @@ function tablaExcelFlota(flota, semanas_data, metaTotal, otrosMesesFilas){
   rows+=`<tr style="background:#BFDBFE;font-weight:700">
     <td style="${cellStyle};background:#BFDBFE;font-weight:700" colspan="2">TOTAL ${flota.toUpperCase()}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700">${_tieneCSContacto?totalChatsCSContacto:(grandTot.chats||0)}</td>
-    <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#185FA5">${grandTot.ca||0}</td>
-    <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#633806">${grandTot.cn||0}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#166534">${grandTot.nr||0}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#A32D2D">${grandTot.nd||0}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#0891B2">${grandTot.proc||0}</td>
@@ -2029,8 +2024,6 @@ function tablaExcelFlota(flota, semanas_data, metaTotal, otrosMesesFilas){
     rows+=`<tr style="background:#FEF3C7">
       <td style="${cellStyle};background:#FEF3C7;font-weight:700;font-style:italic" colspan="2">Total mes ${mes} <span style="font-weight:400;font-size:9px">(seguimiento)</span></td>
       <td style="${cellStyle};background:#FEF3C7">—</td>
-      <td style="${cellStyle};background:#FEF3C7;color:#185FA5">${s.activo||0}</td>
-      <td style="${cellStyle};background:#FEF3C7;color:#633806">${s.noActivo||0}</td>
       <td style="${cellStyle};background:#FEF3C7;color:#166534">${s.califica||0}</td>
       <td style="${cellStyle};background:#FEF3C7;color:#A32D2D">${s.noCalif||0}</td>
       <td style="${cellStyle};background:#FEF3C7;color:#0891B2">${s.enProceso||0}</td>
@@ -2053,8 +2046,6 @@ function tablaExcelFlota(flota, semanas_data, metaTotal, otrosMesesFilas){
   rows+=`<tr style="${embudoHL}">
     <td style="${cellStyle};${embudoHL}" colspan="2">EMBUDO %</td>
     <td style="${cellStyle};${embudoHL}">100%</td>
-    <td style="${cellStyle};${embudoHL}">${pct(grandTot.ca||0,chatsBase)}</td>
-    <td style="${cellStyle};${embudoHL}">${pct(grandTot.cn||0,chatsBase)}</td>
     <td style="${cellStyle};${embudoHL}">${pct(grandTot.nr||0,chatsBase)}</td>
     <td style="${cellStyle};${embudoHL}">${pct(grandTot.nd||0,chatsBase)}</td>
     <td style="${cellStyle};${embudoHL}">${pct(grandTot.proc||0,chatsBase)}</td>
@@ -2080,8 +2071,6 @@ function tablaExcelFlota(flota, semanas_data, metaTotal, otrosMesesFilas){
             <th style="${hdStyle};width:90px">Semana</th>
             <th style="${hdStyle};width:100px">Canal</th>
             <th style="${hdStyle}">Chats<br>iniciados</th>
-            <th style="${hdStyle}">Activos</th>
-            <th style="${hdStyle}">No<br>activos</th>
             <th style="${hdStyle}">Califica</th>
             <th style="${hdStyle}">No<br>califica</th>
             <th style="${hdStyle}">En<br>proceso</th>
@@ -3762,8 +3751,6 @@ function renderAfiliadoras(){
           +(ci===0?'<td rowspan="'+CANALES_ALL.length+'" style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;background:#F0FDF4;font-weight:600;vertical-align:middle;font-size:11px"><span class="stag '+flotaC[flota]+'">'+flota+'</span></td>':'')
           +'<td style="padding:5px 4px;border:0.5px solid #CBD5E1;font-size:11px;text-align:center">'+canal+'</td>'
           +celdaD(cs.chats,null,true)
-          +celdaD(cs.activo,'#185FA5')
-          +celdaD(cs.noActivo,'#633806')
           +celdaD(cs.califica,'#166534')
           +celdaD(cs.noCalif,'#DC2626')
           +celdaD(cs.enProceso,'#0891B2')
@@ -3781,8 +3768,6 @@ function renderAfiliadoras(){
       rows+='<tr style="background:#EFF6FF;font-weight:700">'
         +'<td colspan="2" style="padding:5px 8px;border:0.5px solid #CBD5E1;font-size:11px;color:#1e3a5f">Subtotal '+flota+'</td>'
         +celdaD(stFlota.chats,'#1e3a5f',true)
-        +celdaD(stFlota.activo,'#185FA5',true)
-        +celdaD(stFlota.noActivo,'#633806',true)
         +celdaD(stFlota.califica,'#166534',true)
         +celdaD(stFlota.noCalif,'#DC2626',true)
         +celdaD(stFlota.enProceso,'#0891B2',true)
@@ -3798,8 +3783,7 @@ function renderAfiliadoras(){
     });
     // Grand total row
     rows+='<tr style="background:#BFDBFE;font-weight:700"><td colspan="2" style="padding:6px 8px;border:0.5px solid #CBD5E1">TOTAL</td>'
-      +celdaD(stAll.chats,null,true)+celdaD(stAll.activo,'#185FA5',true)+celdaD(stAll.noActivo,'#633806',true)
-      +celdaD(stAll.califica,'#166534',true)+celdaD(stAll.noCalif,'#DC2626',true)
+      +celdaD(stAll.chats,null,true)+celdaD(stAll.califica,'#166534',true)+celdaD(stAll.noCalif,'#DC2626',true)
       +celdaD(stAll.enProceso,'#0891B2',true)
       +celdaD(stAll.bolsa,'#5B21B6',true)
       +celdaD(stAll.anteced,'#5B21B6',true)+celdaD(stAll.desaprobK,'#A32D2D',true)
@@ -3817,7 +3801,7 @@ function renderAfiliadoras(){
       +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:650px">'
       +'<thead><tr>'
       +'<th style="'+hdS+';width:90px">Flota</th><th style="'+hdS+'">Canal</th>'
-      +'<th style="'+hdS+'">Chats</th><th style="'+hdS+'">Activos</th><th style="'+hdS+'">No activos</th>'
+      +'<th style="'+hdS+'">Chats</th>'
       +'<th style="'+hdS+'">Califica</th><th style="'+hdS+'">No califica</th>'
       +'<th style="'+hdS+'">En proceso</th>'
       +'<th style="'+hdS+'">Bolsa</th>'
