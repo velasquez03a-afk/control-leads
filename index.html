@@ -518,11 +518,11 @@ async function initBin(){
   // Marcar automáticamente conductores inactivos hace 15+ días (sin afectar nada más)
   const _cambiosInactivos=_autoMarcarInactivos();
   // Congelar en el historial las semanas de "Bolsa" que ya cerraron y todavía no tenían foto guardada
-  const _huboManual=sembrarBolsaHistoricoManual();
+  const _huboLimpieza=limpiarBolsaHistorialAntiguo();
   const _huboNuevasBolsa=capturarBolsaSemanasVencidas();
   const _huboCompletado=corregirCriterioBolsaAntiguo();
   const _huboDenisse=crearAgenteDenisse();
-  if(_cambiosInactivos>0||_huboManual||_huboNuevasBolsa||_huboCompletado||_huboDenisse) await saveBin();
+  if(_cambiosInactivos>0||_huboLimpieza||_huboNuevasBolsa||_huboCompletado||_huboDenisse) await saveBin();
   syncBadge();
   renderSec();
   // Si la primera conexión falló (ej. señal inestable justo al abrir), reintenta pronto en vez de
@@ -811,6 +811,7 @@ function corregirCriterioBolsaAntiguo(){
   ST.bolsaHistorial=ST.bolsaHistorial||{};
   let huboCambios=false;
   Object.keys(ST.bolsaHistorial).forEach(semKey=>{
+    if(semKey.startsWith('_')) return; // marcas de control (ej. "_limpiezaInicialHecha"), no son semanas
     const entry=ST.bolsaHistorial[semKey];
     if(!entry||entry.manual||entry.criterioV2) return; // manual o ya corregida: no se toca
     entry.porFlota=entry.porFlota||{};
@@ -827,34 +828,22 @@ function corregirCriterioBolsaAntiguo(){
   return huboCambios;
 }
 
-// ── HISTORIAL MANUAL DE BOLSA (semanas 27 a 31 de 2026) ────────────────────
-// El supervisor llevaba este control a mano antes de que existiera este reporte en el sistema.
-// Si la semana YA fue cargada con este mismo dato manual antes, no se vuelve a tocar (para no
-// reescribir cada vez que se abre la app). Pero si la semana fue "congelada" automáticamente por
-// el sistema ANTES de tener este dato manual (con el historial incompleto de esa época), SÍ se
-// sobreescribe una vez con el número real, porque el manual es el correcto.
-// Jockey + Bellavista se suman en "Plazas" (así están agrupadas en el sistema).
-// Nota: solo se tiene el número de Bolsa de esas semanas, no el de conversiones, así que
-// "convertidos" queda en 0 para estas 5 semanas específicas (no hay forma de reconstruirlo).
-function sembrarBolsaHistoricoManual(){
-  const datos={
-    '2026-W27':{Aeropuerto:8,'Aerolíneas':16,Ciudad:14,Plazas:1+1},   // Jockey 1 + Bellavista 1
-    '2026-W28':{Aeropuerto:6,'Aerolíneas':10,Ciudad:11,Plazas:2+1},   // Jockey 2 + Bellavista 1
-    '2026-W29':{Aeropuerto:6,'Aerolíneas':9, Ciudad:14,Plazas:3+1},   // Jockey 3 + Bellavista 1
-    '2026-W30':{Aeropuerto:0,'Aerolíneas':0, Ciudad:0, Plazas:0+0},   // semana sin datos registrados
-    '2026-W31':{Aeropuerto:7,'Aerolíneas':15,Ciudad:24,Plazas:0+0},   // Jockey 0 + Bellavista 0
-  };
+// ── LIMPIEZA INICIAL: quedarse solo con las últimas 4 semanas ──────────────
+// No tenemos datos confiables de "Bolsa" de antes (las semanas manuales cargadas antes, y una
+// semana con un pico artificial por una carga masiva sin fecha de contacto, no reflejan la
+// realidad). Se descarta todo el historial viejo UNA SOLA VEZ, dejando solo las últimas 4
+// semanas, y de ahí en adelante el sistema sigue acumulando el historial normalmente, semana
+// tras semana, sin volver a tocar esto.
+function limpiarBolsaHistorialAntiguo(){
   ST.bolsaHistorial=ST.bolsaHistorial||{};
-  let huboNuevas=false;
-  Object.keys(datos).forEach(semKey=>{
-    const existente=ST.bolsaHistorial[semKey];
-    if(existente&&existente.manual) return; // ya se cargó este dato manual antes: no repetir
-    const porFlota={};
-    FLOTAS.forEach(f=>{ porFlota[f]={chatsIniciados:null,enProceso:null,bolsa:datos[semKey][f]||0,convertidos:0}; });
-    ST.bolsaHistorial[semKey]={capturadoEl:hoy(),porFlota,manual:true};
-    huboNuevas=true;
+  if(ST.bolsaHistorial._limpiezaInicialHecha) return false; // ya se hizo esta limpieza antes: no se repite
+  const semanasAConservar=new Set(ultimasSemanas(4));
+  Object.keys(ST.bolsaHistorial).forEach(semKey=>{
+    if(semKey==='_limpiezaInicialHecha') return;
+    if(!semanasAConservar.has(semKey)) delete ST.bolsaHistorial[semKey];
   });
-  return huboNuevas;
+  ST.bolsaHistorial._limpiezaInicialHecha=true;
+  return true;
 }
 
 // ── NUEVA AGENTE: Denisse (afiliadora) ──────────────────────
@@ -1879,21 +1868,20 @@ function statsCanal(cs){
   };
 }
 
-// Calcula las estadísticas de una fila (semana+canal) combinando 3 criterios distintos:
-// - chats/activos/no activos/califica/no califica/en proceso: cohorte por FECHA DE CONTACTO (csContacto)
-// - bolsa/antecedentes/psi/capacitación: ACUMULATIVO (cuenta a todo el que sigue atascado ahí, no solo quien se movió esta semana)
+// Calcula las estadísticas de una fila (semana+canal), todas sobre el MISMO grupo: los
+// conductores que iniciaron chat en esa semana (csContacto). Así siempre se cumple:
+// Califica = En proceso + Bolsa + Afiliado — sin mezclar con datos de otras semanas.
 // - desaprobado (K/M/C): evento puntual, cohorte por ÚLTIMO MOVIMIENTO (csMovimiento) — la baja se atribuye a la semana en que ocurrió
 function statsFilaHibrida(csContacto,csMovimiento,flota,canal,fechaLimite){
   const bc=calcStats(csContacto||[]);
   const bm=calcStats(csMovimiento||[]);
-  const ba=bolsaAcumulada(fechaLimite,flota,canal);
   return{
     // "No califica" = resto EXACTO de Chats iniciados menos Califica (nunca se calcula aparte,
     // así siempre suman el 100% entre las dos). "No afiliados" sigue siendo el conteo real de bajas.
     chats:bc.chats, nr:bc.califica, nd:bc.chats-bc.califica, proc:bc.enProceso,
-    pre:ba.bolsa, ant:ba.ant, psi:ba.psi, cap:ba.cap,
+    pre:bc.bolsa, ant:bc.anteced, psi:bc.evPsic, cap:bc.capacit,
     desaprobK:bm.desaprobK, desaprobM:bm.desaprobM, desaprobC:bm.desaprobC,
-    afil:0, noAfil:bc.noCalif,
+    afil:bc.afiliado, noAfil:bc.noCalif,
   };
 }
 
@@ -1955,19 +1943,12 @@ function tablaExcelFlota(flota, semanas_data, metaTotal, otrosMesesFilas){
         +'<td style="'+cellStyle+';color:#A32D2D">'+(cst.desaprobM||0)+'</td>'
         +'<td style="'+cellStyle+';color:#7C3AED">'+(cst.cap||0)+'</td>'
         +'<td style="'+cellStyle+';color:#A32D2D">'+(cst.desaprobC||0)+'</td>'
-        +'<td style="'+cellStyle+';font-weight:600;color:var(--green)">'+(s.csAfil?s.csAfil.filter(x=>x.canal===canal).length:(cst.afil||0))+'</td>'
+        +'<td style="'+cellStyle+';font-weight:600;color:var(--green)">'+(cst.afil||0)+'</td>'
         +'<td style="'+cellStyle+';color:#A32D2D">'+(cst.noAfil||0)+'</td>'
         +'</tr>';
     });
   });
-  // Compute afil by canal from csAfil across all semanas
-  const afilByCanal={};
-  CANALES.forEach(canal=>{
-    afilByCanal[canal]=semanas_data.reduce((a,sw)=>a+(sw.csAfil?sw.csAfil.filter(x=>x.canal===canal).length:0),0);
-  });
-  const totalAfilCSAfil=semanas_data.reduce((a,sw)=>a+(sw.csAfil?sw.csAfil.length:0),0);
-
-  // Compute "Chats iniciados" por canal desde csContacto (fecha de contacto), igual criterio que afil
+  // Compute "Chats iniciados" por canal desde csContacto (fecha de contacto)
   const chatsByCanal={};
   CANALES.forEach(canal=>{
     chatsByCanal[canal]=semanas_data.reduce((a,sw)=>a+(sw.csContacto?sw.csContacto.filter(x=>x.canal===canal).length:0),0);
@@ -1988,7 +1969,7 @@ function tablaExcelFlota(flota, semanas_data, metaTotal, otrosMesesFilas){
       <td style="${cellStyle};${totHL};color:#A32D2D">${ct.desaprobM||0}</td>
       <td style="${cellStyle};${totHL};color:#7C3AED">${ct.cap||0}</td>
       <td style="${cellStyle};${totHL};color:#A32D2D">${ct.desaprobC||0}</td>
-      <td style="${cellStyle};${totHL};color:var(--green)">${afilByCanal[canal]||ct.afil||0}</td>
+      <td style="${cellStyle};${totHL};color:var(--green)">${ct.afil||0}</td>
       <td style="${cellStyle};${totHL};color:#A32D2D">${ct.noAfil||0}</td>
     </tr>`;
   });
@@ -2007,7 +1988,7 @@ function tablaExcelFlota(flota, semanas_data, metaTotal, otrosMesesFilas){
     <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#A32D2D">${grandTot.desaprobM||0}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#7C3AED">${grandTot.cap||0}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#A32D2D">${grandTot.desaprobC||0}</td>
-    <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:var(--green)">${totalAfilCSAfil||grandTot.afil||0}</td>
+    <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:var(--green)">${grandTot.afil||0}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#A32D2D">${grandTot.noAfil||0}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700">${metaTotal||''}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700">${metaTotal>0?pct(grandTot.afil,metaTotal):''}</td>
@@ -2053,7 +2034,7 @@ function tablaExcelFlota(flota, semanas_data, metaTotal, otrosMesesFilas){
     <td style="${cellStyle};${embudoHL}">${pct(grandTot.desaprobM||0,chatsBase)}</td>
     <td style="${cellStyle};${embudoHL}">${pct(grandTot.cap||0,chatsBase)}</td>
     <td style="${cellStyle};${embudoHL}">${pct(grandTot.desaprobC||0,chatsBase)}</td>
-    <td style="${cellStyle};${embudoHL}">${pct(totalAfilCSAfil||grandTot.afil||0,chatsBase)}</td>
+    <td style="${cellStyle};${embudoHL}">${pct(grandTot.afil||0,chatsBase)}</td>
     <td style="${cellStyle};${embudoHL}">${pct(grandTot.noAfil||0,chatsBase)}</td>
   </tr>`;
 
