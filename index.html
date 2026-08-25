@@ -1022,6 +1022,15 @@ function renderMiResumen(){
     if(!afilMap[sk])afilMap[sk]=[];
     afilMap[sk].push(cx);
   });
+  // contactoMap: "Chats iniciados" se atribuye a la semana de la FECHA DE CONTACTO (primer contacto),
+  // no a la del último movimiento — así no se mezcla con Bolsa/En proceso/etc, que sí van por último movimiento.
+  const contactoMap={};
+  base.forEach(c=>{
+    if(!c.fechaContacto) return;
+    const sk=semDia(c.fechaContacto);
+    if(!contactoMap[sk])contactoMap[sk]=[];
+    contactoMap[sk].push(c);
+  });
 
   // KPIs solo de semanas visibles - calculado después de semanasVisMR?semanasDelMes[0].rng+(semanasDelMes.length>1?' — '+semanasDelMes[semanasDelMes.length-1].rng:''):'';
 
@@ -1068,7 +1077,8 @@ function renderMiResumen(){
       sem:sw.sem,numMes:sw.numMes,rng:sw.rng,
       label:'Semana '+sw.numMes+' ('+sw.rng+')',
       cs:(semsMap[sw.sem]||[]).filter(x=>x.flota===flota),
-      csAfil:(afilMap[sw.sem]||[]).filter(x=>x.flota===flota)
+      csAfil:(afilMap[sw.sem]||[]).filter(x=>x.flota===flota),
+      csContacto:(contactoMap[sw.sem]||[]).filter(x=>x.flota===flota)
     }));
     return tablaExcelFlota(flota,semsFlota,metaVal);
   }).join('');
@@ -1871,7 +1881,7 @@ function tablaExcelFlota(flota, semanas_data, metaTotal){
       rows+='<tr>'
         +(ci===0?'<td rowspan="'+CANALES.length+'" style="'+cellStyle+';'+semHL+';vertical-align:middle;text-align:center"><div style="font-weight:700;font-size:11px;color:#1e3a5f">Semana '+wNum+'</div><div style="font-size:10px;color:#374151;margin-top:3px">('+rng+')</div></td>':'')
         +'<td style="'+cellStyle+'">'+canal+'</td>'
-        +'<td style="'+cellStyle+'">'+(cst.chats||0)+'</td>'
+        +'<td style="'+cellStyle+'">'+(s.csContacto?s.csContacto.filter(x=>x.canal===canal).length:(cst.chats||0))+'</td>'
         +'<td style="'+cellStyle+';color:#185FA5">'+(cst.ca||0)+'</td>'
         +'<td style="'+cellStyle+';color:#633806">'+(cst.cn||0)+'</td>'
         +'<td style="'+cellStyle+';color:#166534">'+(cst.nr||0)+'</td>'
@@ -1896,12 +1906,20 @@ function tablaExcelFlota(flota, semanas_data, metaTotal){
   });
   const totalAfilCSAfil=semanas_data.reduce((a,sw)=>a+(sw.csAfil?sw.csAfil.length:0),0);
 
+  // Compute "Chats iniciados" por canal desde csContacto (fecha de contacto), igual criterio que afil
+  const chatsByCanal={};
+  CANALES.forEach(canal=>{
+    chatsByCanal[canal]=semanas_data.reduce((a,sw)=>a+(sw.csContacto?sw.csContacto.filter(x=>x.canal===canal).length:0),0);
+  });
+  const totalChatsCSContacto=semanas_data.reduce((a,sw)=>a+(sw.csContacto?sw.csContacto.length:0),0);
+  const _tieneCSContacto=semanas_data.some(sw=>sw.csContacto);
+
   // Totales por canal
   CANALES.forEach(canal=>{
     const ct=canalTots[canal];
     rows+=`<tr style="${totHL}">
       <td style="${cellStyle};${totHL};font-style:italic" colspan="2">Total ${canal}</td>
-      <td style="${cellStyle};${totHL}">${ct.chats||0}</td><td style="${cellStyle};${totHL};color:#185FA5">${ct.ca||0}</td>
+      <td style="${cellStyle};${totHL}">${_tieneCSContacto?(chatsByCanal[canal]||0):(ct.chats||0)}</td><td style="${cellStyle};${totHL};color:#185FA5">${ct.ca||0}</td>
       <td style="${cellStyle};${totHL};color:#633806">${ct.cn||0}</td><td style="${cellStyle};${totHL};color:#166534">${ct.nr||0}</td>
       <td style="${cellStyle};${totHL};color:#A32D2D">${ct.nd||0}</td><td style="${cellStyle};${totHL};color:#0891B2">${ct.proc||0}</td><td style="${cellStyle};${totHL};background:#EFF6FF">${ct.pre||0}</td>
       <td style="${cellStyle};${totHL};color:#5B21B6">${ct.ant||0}</td>
@@ -1918,7 +1936,7 @@ function tablaExcelFlota(flota, semanas_data, metaTotal){
   // Total general flota
   rows+=`<tr style="background:#BFDBFE;font-weight:700">
     <td style="${cellStyle};background:#BFDBFE;font-weight:700" colspan="2">TOTAL ${flota.toUpperCase()}</td>
-    <td style="${cellStyle};background:#BFDBFE;font-weight:700">${grandTot.chats||0}</td>
+    <td style="${cellStyle};background:#BFDBFE;font-weight:700">${_tieneCSContacto?totalChatsCSContacto:(grandTot.chats||0)}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#185FA5">${grandTot.ca||0}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#633806">${grandTot.cn||0}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700;color:#166534">${grandTot.nr||0}</td>
@@ -1938,23 +1956,24 @@ function tablaExcelFlota(flota, semanas_data, metaTotal){
   </tr>`;
 
   // Embudo %
+  const chatsBase=_tieneCSContacto?totalChatsCSContacto:grandTot.chats;
   rows+=`<tr style="${embudoHL}">
     <td style="${cellStyle};${embudoHL}" colspan="2">EMBUDO %</td>
     <td style="${cellStyle};${embudoHL}">100%</td>
-    <td style="${cellStyle};${embudoHL}">${pct(grandTot.ca||0,grandTot.chats)}</td>
-    <td style="${cellStyle};${embudoHL}">${pct(grandTot.cn||0,grandTot.chats)}</td>
-    <td style="${cellStyle};${embudoHL}">${pct(grandTot.nr||0,grandTot.chats)}</td>
-    <td style="${cellStyle};${embudoHL}">${pct(grandTot.nd||0,grandTot.chats)}</td>
-    <td style="${cellStyle};${embudoHL}">${pct(grandTot.proc||0,grandTot.chats)}</td>
-    <td style="${cellStyle};${embudoHL}">${pct(grandTot.pre||0,grandTot.chats)}</td>
-    <td style="${cellStyle};${embudoHL}">${pct(grandTot.ant||0,grandTot.chats)}</td>
-    <td style="${cellStyle};${embudoHL}">${pct(grandTot.desaprobK||0,grandTot.chats)}</td>
-    <td style="${cellStyle};${embudoHL}">${pct(grandTot.psi||0,grandTot.chats)}</td>
-    <td style="${cellStyle};${embudoHL}">${pct(grandTot.desaprobM||0,grandTot.chats)}</td>
-    <td style="${cellStyle};${embudoHL}">${pct(grandTot.cap||0,grandTot.chats)}</td>
-    <td style="${cellStyle};${embudoHL}">${pct(grandTot.desaprobC||0,grandTot.chats)}</td>
-    <td style="${cellStyle};${embudoHL}">${pct(totalAfilCSAfil||grandTot.afil||0,grandTot.chats)}</td>
-    <td style="${cellStyle};${embudoHL}">${pct(grandTot.noAfil||0,grandTot.chats)}</td>
+    <td style="${cellStyle};${embudoHL}">${pct(grandTot.ca||0,chatsBase)}</td>
+    <td style="${cellStyle};${embudoHL}">${pct(grandTot.cn||0,chatsBase)}</td>
+    <td style="${cellStyle};${embudoHL}">${pct(grandTot.nr||0,chatsBase)}</td>
+    <td style="${cellStyle};${embudoHL}">${pct(grandTot.nd||0,chatsBase)}</td>
+    <td style="${cellStyle};${embudoHL}">${pct(grandTot.proc||0,chatsBase)}</td>
+    <td style="${cellStyle};${embudoHL}">${pct(grandTot.pre||0,chatsBase)}</td>
+    <td style="${cellStyle};${embudoHL}">${pct(grandTot.ant||0,chatsBase)}</td>
+    <td style="${cellStyle};${embudoHL}">${pct(grandTot.desaprobK||0,chatsBase)}</td>
+    <td style="${cellStyle};${embudoHL}">${pct(grandTot.psi||0,chatsBase)}</td>
+    <td style="${cellStyle};${embudoHL}">${pct(grandTot.desaprobM||0,chatsBase)}</td>
+    <td style="${cellStyle};${embudoHL}">${pct(grandTot.cap||0,chatsBase)}</td>
+    <td style="${cellStyle};${embudoHL}">${pct(grandTot.desaprobC||0,chatsBase)}</td>
+    <td style="${cellStyle};${embudoHL}">${pct(totalAfilCSAfil||grandTot.afil||0,chatsBase)}</td>
+    <td style="${cellStyle};${embudoHL}">${pct(grandTot.noAfil||0,chatsBase)}</td>
   </tr>`;
 
   return`<div class="card" style="padding:0;overflow:hidden">
@@ -2512,6 +2531,17 @@ function renderMensual(){
     afilMap[sk].push(cx);
   });
 
+  // contactoMap: "Chats iniciados" se atribuye a la semana de la FECHA DE CONTACTO (primer contacto),
+  // no a la del último movimiento — se calcula sobre TODOS los conductores (no solo los del mes
+  // seleccionado por último movimiento), porque su fecha de contacto puede caer en otro mes.
+  const contactoMap={};
+  ST.conductores.forEach(c=>{
+    if(!c.fechaContacto) return;
+    const sk=semDia(c.fechaContacto);
+    if(!contactoMap[sk])contactoMap[sk]=[];
+    contactoMap[sk].push(c);
+  });
+
   const semsKeys=Object.keys(semsMap).sort();
 
   // Generar semanas del mes por calendario
@@ -2592,7 +2622,8 @@ function renderMensual(){
       sem:sw.sem,numMes:sw.numMes,rng:sw.rng,
       label:'Semana '+sw.numMes+' ('+sw.rng+')',
       cs:(semsMap[sw.sem]||[]).filter(x=>x.flota===flota),
-      csAfil:(afilMap[sw.sem]||[]).filter(x=>x.flota===flota)
+      csAfil:(afilMap[sw.sem]||[]).filter(x=>x.flota===flota),
+      csContacto:(contactoMap[sw.sem]||[]).filter(x=>x.flota===flota)
     }));
     return tablaExcelFlota(flota,semsFlota,metaVal);
   }).join('');
