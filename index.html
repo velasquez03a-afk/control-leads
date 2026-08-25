@@ -3655,8 +3655,15 @@ function renderAfiliadoras(){
   const CANALES_ALL=CANALES;
 
   // ── Resumen global ──
-  const todosEnR=ST.conductores.filter(cx=>fechas.includes(ultimaFecha(cx)));
+  const todosEnR=ST.conductores.filter(cx=>fechas.includes(ultimaFecha(cx))); // "Total actividad" global
   const gStats=calcStats(todosEnR);
+  // Activos/Bajas/En proceso globales: cohorte por FECHA DE CONTACTO (chats iniciados en el período)
+  const todosPorContacto=ST.conductores.filter(cx=>fechas.includes(cx.fechaContacto));
+  const gStatsContacto=calcStats(todosPorContacto);
+  // Bolsa global: ACUMULATIVA (todo el que sigue atascado hasta el final del período)
+  const gBolsa=ST.conductores.filter(cx=>!cx.dropout&&ETAPAS_BOLSA.includes(cx.etapa)&&ultimaFecha(cx)<=hasta).length;
+  // Afiliados global: evento puntual, por fecha real de afiliación
+  const gAfil=ST.conductores.filter(cx=>cx.fechaAfiliacion&&fechas.includes(cx.fechaAfiliacion)).length;
 
   // ── Tabla comparativa ──
   const hdS='padding:8px 6px;text-align:center;border:0.5px solid #CBD5E1;font-size:10px;font-weight:700;background:#DBEAFE;color:#1e3a5f;white-space:nowrap';
@@ -3665,12 +3672,16 @@ function renderAfiliadoras(){
   const compRows=agentes.map(ag=>{
     const agIds=ST.users.filter(u=>u.nombre===ag.nombre).map(u=>u.id);
     const mis=ST.conductores.filter(cx=>agIds.includes(cx.agenteId)||cx.agenteId===ag.id);
-    const enR=mis.filter(cx=>fechas.includes(ultimaFecha(cx)));
-    const st=calcStats(enR);
-    const nuevos=mis.filter(cx=>fechas.includes(cx.fechaContacto)).length;
-    // Afiliados: mismo criterio que la fila TOTAL (st.afiliado, de calcStats sobre enR),
-    // para que la suma de las afiliadoras siempre cuadre con el total del equipo.
-    const afilEnR=st.afiliado;
+    const enR=mis.filter(cx=>fechas.includes(ultimaFecha(cx))); // "Total actividad": todo movimiento en el período
+    // "Nuevos"/Activos/Bajas/En proceso: cohorte por FECHA DE CONTACTO (chats iniciados en el período)
+    const porContacto=mis.filter(cx=>fechas.includes(cx.fechaContacto));
+    const stContacto=calcStats(porContacto);
+    // Bolsa: ACUMULATIVA — todo el que sigue atascado en Antecedentes/Psi./Capacitación hasta el
+    // final del período, sin importar cuándo entró (mismo criterio que Sem/Mes y Mi resumen).
+    const bolsaAg=mis.filter(cx=>!cx.dropout&&ETAPAS_BOLSA.includes(cx.etapa)&&ultimaFecha(cx)<=hasta).length;
+    // Afiliados: evento puntual, se atribuye a la fecha real de afiliación (no al último movimiento)
+    const afilEnR=mis.filter(cx=>cx.fechaAfiliacion&&fechas.includes(cx.fechaAfiliacion)).length;
+    const nuevos=porContacto.length;
     const pctMeta=meta>0?Math.round(afilEnR/meta*100):0;
     const bc=pctMeta>=100?'#16A34A':pctMeta>=60?'#2563EB':pctMeta>=30?'#F59E0B':'#DC2626';
     const bw=Math.min(100,pctMeta);
@@ -3679,10 +3690,10 @@ function renderAfiliadoras(){
       +'<div style="display:flex;align-items:center;gap:6px"><div class="avatar" style="width:26px;height:26px;font-size:10px">'+ini(ag.nombre)+'</div>'+ag.nombre+'</div></td>'
       +tdN(nuevos,'#374151',false)
       +tdN(enR.length,'#374151',true)
-      +tdN(st.activo,'#185FA5',false)
-      +tdN(st.noCalif,'#DC2626',false)
-      +tdN(st.enProceso,'#0891B2',false)
-      +tdN(st.bolsa,'#5B21B6',false)
+      +tdN(stContacto.activo,'#185FA5',false)
+      +tdN(stContacto.noCalif,'#DC2626',false)
+      +tdN(stContacto.enProceso,'#0891B2',false)
+      +tdN(bolsaAg,'#5B21B6',false)
       +tdN(afilEnR,afilEnR>0?'#16A34A':'#374151',true)
       +tdN(meta,'#6B7280',false)
       +'<td style="padding:6px 10px;border:0.5px solid #CBD5E1;min-width:160px">'
@@ -3695,17 +3706,17 @@ function renderAfiliadoras(){
 
   // Total row
   const gNew=ST.conductores.filter(cx=>fechas.includes(cx.fechaContacto)).length;
-  const gPct=meta>0&&agentes.length>0?Math.round(gStats.afiliado/(meta*agentes.length)*100):0;
+  const gPct=meta>0&&agentes.length>0?Math.round(gAfil/(meta*agentes.length)*100):0;
   const gcol=gPct>=100?'#16A34A':gPct>=60?'#2563EB':gPct>=30?'#F59E0B':'#DC2626';
   const compTotal='<tr style="background:#BFDBFE;font-weight:700">'
     +'<td style="padding:7px 10px;border:0.5px solid #CBD5E1;font-size:12px">TOTAL EQUIPO</td>'
     +tdN(gNew,'#374151',true)
     +tdN(todosEnR.length,'#374151',true)
-    +tdN(gStats.activo,'#185FA5',true)
-    +tdN(gStats.noCalif,'#DC2626',true)
-    +tdN(gStats.enProceso,'#0891B2',true)
-    +tdN(gStats.bolsa,'#5B21B6',true)
-    +tdN(gStats.afiliado,gStats.afiliado>0?'#16A34A':'#374151',true)
+    +tdN(gStatsContacto.activo,'#185FA5',true)
+    +tdN(gStatsContacto.noCalif,'#DC2626',true)
+    +tdN(gStatsContacto.enProceso,'#0891B2',true)
+    +tdN(gBolsa,'#5B21B6',true)
+    +tdN(gAfil,gAfil>0?'#16A34A':'#374151',true)
     +tdN(meta*agentes.length,'#6B7280',true)
     +'<td style="padding:6px 10px;border:0.5px solid #CBD5E1;font-weight:700;color:'+gcol+'">'+gPct+'%</td>'
     +'</tr>';
@@ -3714,20 +3725,41 @@ function renderAfiliadoras(){
   const agSelected=document.getElementById('af-agente')?.value||'';
   const agentesVis=agSelected?agentes.filter(a=>a.id===agSelected||ST.users.find(u=>u.nombre===a.nombre&&u.id===agSelected)):agentes;
 
+  // Calcula estadísticas híbridas para un rango de fechas flexible (usado en "Detalle por agente"):
+  // chats/activo/noActivo/califica/noCalif/enProceso por FECHA DE CONTACTO; bolsa/antecedentes/
+  // psi/capacitación ACUMULATIVOS (hasta el final del rango); desaprobado por último movimiento
+  // (evento puntual); afiliado por fecha real de afiliación.
+  const statsHibridaRango=(arr,flota,canal)=>{
+    const matchFC=(cx)=>(!flota||cx.flota===flota)&&(!canal||cx.canal===canal);
+    const porContacto=arr.filter(cx=>matchFC(cx)&&fechas.includes(cx.fechaContacto));
+    const bc=calcStats(porContacto);
+    const enBolsa=arr.filter(cx=>matchFC(cx)&&!cx.dropout&&ETAPAS_BOLSA.includes(cx.etapa)&&ultimaFecha(cx)<=hasta);
+    let ant=0,psi=0,cap=0;
+    enBolsa.forEach(cx=>{ if(cx.etapa===4)ant++; else if(cx.etapa===5)psi++; else if(cx.etapa===6)cap++; });
+    const porMovimiento=arr.filter(cx=>matchFC(cx)&&fechas.includes(ultimaFecha(cx)));
+    const bm=calcStats(porMovimiento);
+    const afiliado=arr.filter(cx=>matchFC(cx)&&cx.fechaAfiliacion&&fechas.includes(cx.fechaAfiliacion)).length;
+    return{
+      chats:bc.chats,activo:bc.activo,noActivo:bc.noActivo,califica:bc.califica,noCalif:bc.noCalif,enProceso:bc.enProceso,
+      bolsa:enBolsa.length,anteced:ant,evPsic:psi,capacit:cap,
+      desaprobK:bm.desaprobK,desaprobM:bm.desaprobM,desaprobC:bm.desaprobC,
+      afiliado,
+    };
+  };
+
   const detalleHTML=agentesVis.map(ag=>{
     const agIds=ST.users.filter(u=>u.nombre===ag.nombre).map(u=>u.id);
     const mis=ST.conductores.filter(cx=>agIds.includes(cx.agenteId)||cx.agenteId===ag.id);
-    const enR=mis.filter(cx=>fechas.includes(ultimaFecha(cx)));
+    const enR=mis.filter(cx=>fechas.includes(ultimaFecha(cx))||fechas.includes(cx.fechaContacto));
     if(!enR.length)return'';
-    const stAll=calcStats(enR);
+    const stAll=statsHibridaRango(mis,null,null);
     const celdaD=(v,color,bold)=>'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;font-size:11px;'+(bold?'font-weight:700;':'')+(color?'color:'+color+';':'')+'">'+( v||0)+'</td>';
 
     let rows='';
     FLOTAS.forEach(flota=>{
-      const fd=enR.filter(cx=>cx.flota===flota);
-      const stFlota=calcStats(fd);
+      const stFlota=statsHibridaRango(mis,flota,null);
       CANALES_ALL.forEach((canal,ci)=>{
-        const cs=calcStats(fd.filter(cx=>cx.canal===canal));
+        const cs=statsHibridaRango(mis,flota,canal);
         rows+='<tr>'
           +(ci===0?'<td rowspan="'+CANALES_ALL.length+'" style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;background:#F0FDF4;font-weight:600;vertical-align:middle;font-size:11px"><span class="stag '+flotaC[flota]+'">'+flota+'</span></td>':'')
           +'<td style="padding:5px 4px;border:0.5px solid #CBD5E1;font-size:11px;text-align:center">'+canal+'</td>'
