@@ -701,6 +701,7 @@ function estadoAlaFecha(c,fechaLimite){
 // afiliados ni bajas. Se atribuyen a la semana de su ÚLTIMO MOVIMIENTO (no a un snapshot repetido
 // semana tras semana) — así un conductor que sigue atascado en la misma etapa solo cuenta UNA VEZ,
 // en la semana en que realmente se movió por última vez, y no infla las semanas siguientes.
+// (Este criterio es el que usa el reporte de Marketing "Bolsa semanal por flota".)
 const ETAPAS_BOLSA=[4,5,6];
 function bolsaSemana(semKey,flota){
   let n=0;
@@ -711,6 +712,28 @@ function bolsaSemana(semKey,flota){
     if(semDia(ultimaFecha(c))===semKey) n++;
   });
   return n;
+}
+// ── BOLSA ACUMULATIVA (solo para "Sem/Mes" y "Mi resumen") ──────────
+// A diferencia del reporte de Marketing (que atribuye Bolsa SOLO a la semana del último
+// movimiento), aquí Bolsa debe ser ACUMULATIVA: si un conductor entra a Antecedentes/Psi./
+// Capacitación y no avanza, debe seguir contando en TODAS las semanas siguientes mientras
+// siga atascado ahí — no solo en la semana en que se movió por última vez.
+// fechaLimite = domingo de esa semana. Se cuenta a todo conductor que YA estaba en Bolsa desde
+// esa fecha o antes (su último movimiento es <= fechaLimite) y sigue actualmente en Bolsa.
+function bolsaAcumulada(fechaLimite,flota,canal){
+  let bolsa=0,ant=0,psi=0,cap=0;
+  ST.conductores.forEach(c=>{
+    if(flota&&c.flota!==flota) return;
+    if(canal&&c.canal!==canal) return;
+    if(c.dropout) return;
+    if(!ETAPAS_BOLSA.includes(c.etapa)) return;
+    if(ultimaFecha(c)>fechaLimite) return; // su último movimiento es posterior a esta semana: todavía no "estaba" aquí
+    bolsa++;
+    if(c.etapa===4) ant++;
+    else if(c.etapa===5) psi++;
+    else if(c.etapa===6) cap++;
+  });
+  return {bolsa,ant,psi,cap};
 }
 // "En proceso": conductores actualmente en las primeras etapas (Contacto, Info enviada, Docs
 // recibidos, Formulario), antes de llegar a Bolsa. Mismo criterio: semana de su último movimiento.
@@ -994,6 +1017,18 @@ function renderMiResumen(){
   const base=todos.filter(c=>mesDeSemana(semDia(ultimaFecha(c)))===mesSel);
   const metaVal=ST['meta_'+mesSel]||0;
 
+  // Conductores de OTROS meses (por fecha de contacto) a los que todavía se les está haciendo
+  // seguimiento (no afiliados, no bajas) — para no perderles la pista al ver un mes específico.
+  const otrosMesesEnSeguimiento={};
+  todos.forEach(c=>{
+    if(!c.fechaContacto) return;
+    const mesContacto=mesDeSemana(semDia(c.fechaContacto));
+    if(mesContacto===mesSel) return;
+    if(c.dropout||c.etapa===7) return;
+    if(!otrosMesesEnSeguimiento[mesContacto]) otrosMesesEnSeguimiento[mesContacto]=[];
+    otrosMesesEnSeguimiento[mesContacto].push(c);
+  });
+
   // Semanas del mes por calendario
   const semanasDelMes=[];
   const mesIdx2=MESES.indexOf(mesSel);
@@ -1076,11 +1111,19 @@ function renderMiResumen(){
     const semsFlota=semanasVisMR.map(sw=>({
       sem:sw.sem,numMes:sw.numMes,rng:sw.rng,
       label:'Semana '+sw.numMes+' ('+sw.rng+')',
-      cs:(semsMap[sw.sem]||[]).filter(x=>x.flota===flota),
+      csMovimiento:(semsMap[sw.sem]||[]).filter(x=>x.flota===flota),
       csAfil:(afilMap[sw.sem]||[]).filter(x=>x.flota===flota),
-      csContacto:(contactoMap[sw.sem]||[]).filter(x=>x.flota===flota)
+      csContacto:(contactoMap[sw.sem]||[]).filter(x=>x.flota===flota),
+      fechaLimite:finDeSemana(sw.sem)
     }));
-    return tablaExcelFlota(flota,semsFlota,metaVal);
+    const otrosMesesFilas=Object.keys(otrosMesesEnSeguimiento)
+      .sort((a,b)=>MESES.indexOf(a)-MESES.indexOf(b))
+      .map(mes=>{
+        const cohorte=otrosMesesEnSeguimiento[mes].filter(c=>c.flota===flota);
+        if(!cohorte.length) return null;
+        return {mes,cohorte};
+      }).filter(Boolean);
+    return tablaExcelFlota(flota,semsFlota,metaVal,otrosMesesFilas);
   }).join('');
 
   const rangoMesMR=semanasVisMR.length>0?semanasVisMR[0].rng+(semanasVisMR.length>1?' — '+semanasVisMR[semanasVisMR.length-1].rng:''):'';
@@ -1841,13 +1884,36 @@ function statsCanal(cs){
   };
 }
 
-function tablaExcelFlota(flota, semanas_data, metaTotal){
-  // semanas_data: array de {sem, label, cs}
+// Calcula las estadísticas de una fila (semana+canal) combinando 3 criterios distintos:
+// - chats/activos/no activos/califica/no califica/en proceso: cohorte por FECHA DE CONTACTO (csContacto)
+// - bolsa/antecedentes/psi/capacitación: ACUMULATIVO (cuenta a todo el que sigue atascado ahí, no solo quien se movió esta semana)
+// - desaprobado (K/M/C): evento puntual, cohorte por ÚLTIMO MOVIMIENTO (csMovimiento) — la baja se atribuye a la semana en que ocurrió
+function statsFilaHibrida(csContacto,csMovimiento,flota,canal,fechaLimite){
+  const bc=calcStats(csContacto||[]);
+  const bm=calcStats(csMovimiento||[]);
+  const ba=bolsaAcumulada(fechaLimite,flota,canal);
+  return{
+    chats:bc.chats, ca:bc.activo, cn:bc.noActivo, nr:bc.califica, nd:bc.noCalif, proc:bc.enProceso,
+    pre:ba.bolsa, ant:ba.ant, psi:ba.psi, cap:ba.cap,
+    desaprobK:bm.desaprobK, desaprobM:bm.desaprobM, desaprobC:bm.desaprobC,
+    afil:0, noAfil:bc.noCalif,
+  };
+}
+
+function tablaExcelFlota(flota, semanas_data, metaTotal, otrosMesesFilas){
+  // semanas_data: array de {sem, label, csContacto, csMovimiento, csAfil, fechaLimite}
+  // otrosMesesFilas: array opcional de {mes, cohorte} — conductores de meses anteriores a los que
+  // se les sigue haciendo seguimiento este mes (no afiliados, no bajas), para no perderles la pista.
   const fcls=flotaC[flota]||'';
+  const statsFila=(s,canal)=>statsFilaHibrida(
+    (s.csContacto||[]).filter(x=>x.canal===canal),
+    (s.csMovimiento||[]).filter(x=>x.canal===canal),
+    flota,canal,s.fechaLimite||finDeSemana(s.sem)
+  );
   const semTots=semanas_data.map(s=>{
     const tot={chats:0,ca:0,cn:0,nr:0,nd:0,pre:0,proc:0,ant:0,desaprobK:0,psi:0,desaprobM:0,cap:0,desaprobC:0,afil:0,noAfil:0};
     CANALES.forEach(c=>{
-      const st=statsCanal(s.cs.filter(x=>x.canal===c));
+      const st=statsFila(s,c);
       Object.keys(tot).forEach(k=>tot[k]+=st[k]);
     });
     return tot;
@@ -1857,7 +1923,7 @@ function tablaExcelFlota(flota, semanas_data, metaTotal){
   CANALES.forEach(c=>{canalTots[c]={chats:0,ca:0,cn:0,nr:0,nd:0,pre:0,proc:0,ant:0,desaprobK:0,psi:0,desaprobM:0,cap:0,desaprobC:0,afil:0,noAfil:0};});
   semanas_data.forEach(s=>{
     CANALES.forEach(c=>{
-      const st=statsCanal(s.cs.filter(x=>x.canal===c));
+      const st=statsFila(s,c);
       Object.keys(grandTot).forEach(k=>{if(st[k]!==undefined){grandTot[k]+=st[k]||0;canalTots[c][k]+=st[k]||0;}});
     });
   });
@@ -1877,11 +1943,11 @@ function tablaExcelFlota(flota, semanas_data, metaTotal){
       const wLabel=s.label||(semRng(s.sem));
       const wNum=s.numMes||(parseInt((s.sem||'').split('-W')[1])||'');
     CANALES.forEach((canal,ci)=>{
-      const cst=statsCanal(s.cs.filter(x=>x.canal===canal));
+      const cst=statsFila(s,canal);
       rows+='<tr>'
         +(ci===0?'<td rowspan="'+CANALES.length+'" style="'+cellStyle+';'+semHL+';vertical-align:middle;text-align:center"><div style="font-weight:700;font-size:11px;color:#1e3a5f">Semana '+wNum+'</div><div style="font-size:10px;color:#374151;margin-top:3px">('+rng+')</div></td>':'')
         +'<td style="'+cellStyle+'">'+canal+'</td>'
-        +'<td style="'+cellStyle+'">'+(s.csContacto?s.csContacto.filter(x=>x.canal===canal).length:(cst.chats||0))+'</td>'
+        +'<td style="'+cellStyle+'">'+(cst.chats||0)+'</td>'
         +'<td style="'+cellStyle+';color:#185FA5">'+(cst.ca||0)+'</td>'
         +'<td style="'+cellStyle+';color:#633806">'+(cst.cn||0)+'</td>'
         +'<td style="'+cellStyle+';color:#166534">'+(cst.nr||0)+'</td>'
@@ -1954,6 +2020,33 @@ function tablaExcelFlota(flota, semanas_data, metaTotal){
     <td style="${cellStyle};background:#BFDBFE;font-weight:700">${metaTotal||''}</td>
     <td style="${cellStyle};background:#BFDBFE;font-weight:700">${metaTotal>0?pct(grandTot.afil,metaTotal):''}</td>
   </tr>`;
+
+  // Filas "Total mes X" — conductores de OTROS meses (por fecha de contacto) a los que se les
+  // sigue haciendo seguimiento este mes (siguen en Bolsa/En proceso, no afiliados, no bajas).
+  // Es informativo: no se suma al TOTAL de la flota, solo para no perderles la pista.
+  (otrosMesesFilas||[]).forEach(({mes,cohorte})=>{
+    const s=calcStats(cohorte);
+    rows+=`<tr style="background:#FEF3C7">
+      <td style="${cellStyle};background:#FEF3C7;font-weight:700;font-style:italic" colspan="2">Total mes ${mes} <span style="font-weight:400;font-size:9px">(seguimiento)</span></td>
+      <td style="${cellStyle};background:#FEF3C7">—</td>
+      <td style="${cellStyle};background:#FEF3C7;color:#185FA5">${s.activo||0}</td>
+      <td style="${cellStyle};background:#FEF3C7;color:#633806">${s.noActivo||0}</td>
+      <td style="${cellStyle};background:#FEF3C7;color:#166534">${s.califica||0}</td>
+      <td style="${cellStyle};background:#FEF3C7;color:#A32D2D">${s.noCalif||0}</td>
+      <td style="${cellStyle};background:#FEF3C7;color:#0891B2">${s.enProceso||0}</td>
+      <td style="${cellStyle};background:#FEF3C7;font-weight:600">${s.bolsa||0}</td>
+      <td style="${cellStyle};background:#FEF3C7;color:#5B21B6">${s.anteced||0}</td>
+      <td style="${cellStyle};background:#FEF3C7;color:#A32D2D">${s.desaprobK||0}</td>
+      <td style="${cellStyle};background:#FEF3C7;color:#0869C8">${s.evPsic||0}</td>
+      <td style="${cellStyle};background:#FEF3C7;color:#A32D2D">${s.desaprobM||0}</td>
+      <td style="${cellStyle};background:#FEF3C7;color:#7C3AED">${s.capacit||0}</td>
+      <td style="${cellStyle};background:#FEF3C7;color:#A32D2D">${s.desaprobC||0}</td>
+      <td style="${cellStyle};background:#FEF3C7;color:var(--green)">${s.afiliado||0}</td>
+      <td style="${cellStyle};background:#FEF3C7;color:#A32D2D">${s.noAfil||0}</td>
+      <td style="${cellStyle};background:#FEF3C7"></td>
+      <td style="${cellStyle};background:#FEF3C7"></td>
+    </tr>`;
+  });
 
   // Embudo %
   const chatsBase=_tieneCSContacto?totalChatsCSContacto:grandTot.chats;
@@ -2506,6 +2599,15 @@ function renderMensual(){
     mesSemPorConductor.set(c.id,{sk,mes:mesDeSemana(sk)});
   });
 
+  // Mismo cálculo pero según la FECHA DE CONTACTO (para Chats iniciados, Activos, No activos,
+  // Califica, No califica y En proceso, que ahora se atribuyen a la semana/mes en que iniciaron el chat).
+  const mesSemContactoPorConductor=new Map();
+  ST.conductores.forEach(c=>{
+    if(!c.fechaContacto) return;
+    const sk=semDia(c.fechaContacto);
+    mesSemContactoPorConductor.set(c.id,{sk,mes:mesDeSemana(sk)});
+  });
+
   // Meses con datos
   const mesesConDatos=new Set();
   mesSemPorConductor.forEach(v=>mesesConDatos.add(v.mes));
@@ -2515,7 +2617,8 @@ function renderMensual(){
   const csMes=ST.conductores.filter(c=>mesSemPorConductor.get(c.id).mes===mesSel);
   const metaVal=ST['meta_'+mesSel]||0;
 
-  // semsMap: agrupado por semana del ÚLTIMO MOVIMIENTO
+  // semsMap: agrupado por semana del ÚLTIMO MOVIMIENTO — se usa solo para Desaprobado (K/M/C),
+  // que es un evento puntual y se atribuye a la semana real en que ocurrió la baja.
   const semsMap={};
   csMes.forEach(c=>{
     const sk=mesSemPorConductor.get(c.id).sk;
@@ -2531,15 +2634,28 @@ function renderMensual(){
     afilMap[sk].push(cx);
   });
 
-  // contactoMap: "Chats iniciados" se atribuye a la semana de la FECHA DE CONTACTO (primer contacto),
-  // no a la del último movimiento — se calcula sobre TODOS los conductores (no solo los del mes
-  // seleccionado por último movimiento), porque su fecha de contacto puede caer en otro mes.
+  // contactoMap: "Chats iniciados", Activos, No activos, Califica, No califica y En proceso se
+  // atribuyen a la semana de la FECHA DE CONTACTO (primer contacto), no a la del último movimiento
+  // — se calcula sobre TODOS los conductores (no solo los del mes seleccionado por último
+  // movimiento), porque su fecha de contacto puede caer en otro mes.
   const contactoMap={};
   ST.conductores.forEach(c=>{
     if(!c.fechaContacto) return;
     const sk=semDia(c.fechaContacto);
     if(!contactoMap[sk])contactoMap[sk]=[];
     contactoMap[sk].push(c);
+  });
+
+  // Conductores de OTROS meses (por fecha de contacto) a los que TODAVÍA les estamos haciendo
+  // seguimiento este mes: siguen activos (no afiliados, no dados de baja). Se agrupan por su mes
+  // de contacto real, para mostrar una fila aparte "Total mes X" y no perderles la pista.
+  const otrosMesesEnSeguimiento={};
+  ST.conductores.forEach(c=>{
+    const infoContacto=mesSemContactoPorConductor.get(c.id);
+    if(!infoContacto||infoContacto.mes===mesSel) return; // sin fecha de contacto, o es del mes actual: no aplica
+    if(c.dropout||c.etapa===7) return; // ya se resolvió (baja o afiliado): no es "seguimiento pendiente"
+    if(!otrosMesesEnSeguimiento[infoContacto.mes]) otrosMesesEnSeguimiento[infoContacto.mes]=[];
+    otrosMesesEnSeguimiento[infoContacto.mes].push(c);
   });
 
   const semsKeys=Object.keys(semsMap).sort();
@@ -2621,11 +2737,21 @@ function renderMensual(){
     const semsFlota=semanasVis.map(sw=>({
       sem:sw.sem,numMes:sw.numMes,rng:sw.rng,
       label:'Semana '+sw.numMes+' ('+sw.rng+')',
-      cs:(semsMap[sw.sem]||[]).filter(x=>x.flota===flota),
+      csMovimiento:(semsMap[sw.sem]||[]).filter(x=>x.flota===flota),
       csAfil:(afilMap[sw.sem]||[]).filter(x=>x.flota===flota),
-      csContacto:(contactoMap[sw.sem]||[]).filter(x=>x.flota===flota)
+      csContacto:(contactoMap[sw.sem]||[]).filter(x=>x.flota===flota),
+      fechaLimite:finDeSemana(sw.sem)
     }));
-    return tablaExcelFlota(flota,semsFlota,metaVal);
+    // Filas extra "Total mes X": conductores de OTROS meses (por fecha de contacto) a los que
+    // todavía se les está haciendo seguimiento (no afiliados, no bajas), para esta flota.
+    const otrosMesesFilas=Object.keys(otrosMesesEnSeguimiento)
+      .sort((a,b)=>MESES.indexOf(a)-MESES.indexOf(b))
+      .map(mes=>{
+        const cohorte=otrosMesesEnSeguimiento[mes].filter(c=>c.flota===flota);
+        if(!cohorte.length) return null;
+        return {mes,cohorte};
+      }).filter(Boolean);
+    return tablaExcelFlota(flota,semsFlota,metaVal,otrosMesesFilas);
   }).join('');
 
   const rangoMes=semanasVis.length>0
