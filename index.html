@@ -1492,8 +1492,8 @@ function renderDiario(isA,isMkt){
     // Stats por subconjunto
     const stDia=(arr)=>{
       const s=calcStats(arr);
-      return{chats:s.chats,activo:s.activo,noActivo:s.noActivo,
-             califica:s.califica,noCalifica:s.noCalif,
+      return{chats:s.chats,
+             califica:s.califica,noCalifica:s.chats-s.califica,
              bolsa:s.bolsa,enProceso:s.enProceso,anteced:s.anteced,desaprobK:s.desaprobK,
              evPsic:s.evPsic,desaprobM:s.desaprobM,
              afiliado:s.afiliado,noAfil:s.noAfil};
@@ -1522,8 +1522,6 @@ function renderDiario(isA,isMkt){
           +(ci===0?'<td rowspan="'+CANALES.length+'" style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;'+semHL+';font-weight:600;vertical-align:middle;font-size:11px">'+diaLabel+'</td>':'')
           +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;font-size:11px">'+canal+'</td>'
           +celda(cs.chats,true)
-          +celda(cs.activo,false,'#185FA5')
-          +celda(cs.noActivo,false,'#633806')
           +celda(cs.califica,false,'#166534')
           +celda(cs.noCalifica,false,'#A32D2D')
           +celda(cs.enProceso,false,'#0891B2')
@@ -1543,8 +1541,7 @@ function renderDiario(isA,isMkt){
         const ct=canalTots[canal];
         rows+='<tr style="'+totHL+'">'
           +'<td style="padding:5px 4px;border:0.5px solid #CBD5E1;'+totHL+';font-style:italic" colspan="2">Total '+canal+'</td>'
-          +celda(ct.chats,true)+celda(ct.activo,true,'#185FA5')+celda(ct.noActivo,true,'#633806')
-          +celda(ct.califica,true,'#166534')+celda(ct.noCalifica,true,'#A32D2D')
+          +celda(ct.chats,true)+celda(ct.califica,true,'#166534')+celda(ct.noCalifica,true,'#A32D2D')
           +celda(ct.enProceso,true,'#0891B2')
           +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;font-weight:700;background:#EFF6FF">'+ct.bolsa+'</td>'
           +celda(ct.anteced,true,'#5B21B6')+celda(ct.desaprobK||0,true,'#A32D2D')
@@ -1556,8 +1553,7 @@ function renderDiario(isA,isMkt){
 
       rows+='<tr style="background:#BFDBFE;font-weight:700">'
         +'<td style="padding:6px 8px;border:0.5px solid #CBD5E1;background:#BFDBFE;font-weight:700" colspan="2">TOTAL '+flota.toUpperCase()+'</td>'
-        +celda(grand.chats,true)+celda(grand.activo,true,'#185FA5')+celda(grand.noActivo,true,'#633806')
-        +celda(grand.califica,true,'#166534')+celda(grand.noCalifica,true,'#A32D2D')
+        +celda(grand.chats,true)+celda(grand.califica,true,'#166534')+celda(grand.noCalifica,true,'#A32D2D')
         +celda(grand.enProceso,true,'#0891B2')
         +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;background:#BFDBFE;font-weight:700">'+grand.bolsa+'</td>'
         +celda(grand.anteced,true,'#5B21B6')+celda(grand.desaprobK||0,true,'#A32D2D')
@@ -1569,8 +1565,6 @@ function renderDiario(isA,isMkt){
       rows+='<tr style="'+embHL+'">'
         +'<td style="padding:5px 4px;border:0.5px solid #CBD5E1;'+embHL+'" colspan="2">EMBUDO %</td>'
         +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;'+embHL+'">100%</td>'
-        +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;'+embHL+'">'+pct(grand.activo,grand.chats)+'</td>'
-        +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;'+embHL+'">'+pct(grand.noActivo,grand.chats)+'</td>'
         +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;'+embHL+'">'+pct(grand.califica,grand.chats)+'</td>'
         +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;'+embHL+'">'+pct(grand.noCalifica,grand.chats)+'</td>'
         +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;'+embHL+'">'+pct(grand.enProceso,grand.chats)+'</td>'
@@ -1594,8 +1588,6 @@ function renderDiario(isA,isMkt){
         +'<th style="'+hdSt+';width:80px">Fecha</th>'
         +'<th style="'+hdSt+';width:110px">Canal</th>'
         +'<th style="'+hdSt+'">Chats<br>iniciados</th>'
-        +'<th style="'+hdSt+'">Activos</th>'
-        +'<th style="'+hdSt+'">No activos</th>'
         +'<th style="'+hdSt+'">Califica</th>'
         +'<th style="'+hdSt+'">No califica</th>'
         +'<th style="'+hdSt+'">En<br>proceso</th>'
@@ -1700,7 +1692,7 @@ function renderDiario(isA,isMkt){
     const nuevosDia=mis.filter(c=>c.fechaContacto===fDiaSv);
     const movDia=mis.filter(c=>c.fechaContacto!==fDiaSv&&(c.historial||[]).some(x=>x.fecha===fDiaSv));
     const todosAg=[...nuevosDia,...movDia];
-    const stAg=(arr)=>{const s=calcStats(arr);return{chats:s.chats,activo:s.activo,noActivo:s.noActivo,califica:s.califica,noCalif:s.noCalif,bolsa:s.bolsa,enProceso:s.enProceso,anteced:s.anteced,desaprobK:s.desaprobK,evPsic:s.evPsic,desaprobM:s.desaprobM,capacit:s.capacit,desaprobC:s.desaprobC,afiliado:s.afiliado,noAfil:s.noAfil};};
+    const stAg=(arr)=>{const s=calcStats(arr);return{chats:s.chats,califica:s.califica,noCalif:s.chats-s.califica,bolsa:s.bolsa,enProceso:s.enProceso,anteced:s.anteced,desaprobK:s.desaprobK,evPsic:s.evPsic,desaprobM:s.desaprobM,capacit:s.capacit,desaprobC:s.desaprobC,afiliado:s.afiliado,noAfil:s.noAfil};};
     const canalTots={};
     CANALES.forEach(canal=>{canalTots[canal]=stAg(todosAg.filter(x=>x.canal===canal));});
     const grand=stAg(todosAg);
@@ -1712,8 +1704,7 @@ function renderDiario(isA,isMkt){
         rows+='<tr>'
           +(ci===0?'<td rowspan="'+CANALES.length+'" style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;background:#F0FDF4;font-weight:600;vertical-align:middle;font-size:11px"><span class="stag '+flotaC[flota]+'">'+flota+'</span></td>':'')
           +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;font-size:11px">'+canal+'</td>'
-          +celda(cs.chats,true)+celda(cs.activo,false,'#185FA5')+celda(cs.noActivo,false,'#633806')
-          +celda(cs.califica,false,'#166534')+celda(cs.noCalif,false,'#A32D2D')
+          +celda(cs.chats,true)+celda(cs.califica,false,'#166534')+celda(cs.noCalif,false,'#A32D2D')
           +celda(cs.enProceso,false,'#0891B2')
           +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;font-size:11px;background:#EFF6FF;font-weight:600">'+cs.bolsa+'</td>'
           +celda(cs.anteced,false,'#5B21B6')+celda(cs.desaprobK,false,'#A32D2D')
@@ -1724,8 +1715,7 @@ function renderDiario(isA,isMkt){
       });
     });
     rows+='<tr style="background:#BFDBFE;font-weight:700"><td colspan="2" style="padding:6px 8px;border:0.5px solid #CBD5E1">TOTAL '+ag.nombre.toUpperCase()+'</td>'
-      +celda(grand.chats,true)+celda(grand.activo,true,'#185FA5')+celda(grand.noActivo,true,'#633806')
-      +celda(grand.califica,true,'#166534')+celda(grand.noCalif,true,'#A32D2D')
+      +celda(grand.chats,true)+celda(grand.califica,true,'#166534')+celda(grand.noCalif,true,'#A32D2D')
       +celda(grand.enProceso,true,'#0891B2')
       +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;background:#BFDBFE;font-weight:700">'+grand.bolsa+'</td>'
       +celda(grand.anteced,true,'#5B21B6')+celda(grand.desaprobK,true,'#A32D2D')
@@ -1735,7 +1725,7 @@ function renderDiario(isA,isMkt){
       +'</tr>';
     rows+='<tr style="background:#FEF9C3;font-weight:700;color:#713F12"><td colspan="2" style="padding:5px 4px;border:0.5px solid #CBD5E1">EMBUDO %</td>'
       +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;background:#FEF9C3;font-weight:700">100%</td>'
-      +['activo','noActivo','califica','noCalif','enProceso','bolsa','anteced','desaprobK','evPsic','desaprobM','capacit','desaprobC','afiliado','noAfil'].map(k=>'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;background:#FEF9C3;font-weight:700">'+pct(grand[k]||0,grand.chats)+'</td>').join('')
+      +['califica','noCalif','enProceso','bolsa','anteced','desaprobK','evPsic','desaprobM','capacit','desaprobC','afiliado','noAfil'].map(k=>'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;background:#FEF9C3;font-weight:700">'+pct(grand[k]||0,grand.chats)+'</td>').join('')
       +'</tr>';
     const headerDiv='<div style="margin-bottom:1rem;border-radius:var(--radius);overflow:hidden;border:1px solid var(--border);box-shadow:var(--shadow)">'
       +'<div style="background:#1e3a5f;color:#fff;padding:10px 14px;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:space-between">'
@@ -1754,7 +1744,7 @@ function renderDiario(isA,isMkt){
       +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;min-width:1100px">'
       +'<thead><tr>'
       +'<th style="'+hdSt+';width:90px">Flota</th><th style="'+hdSt+';width:110px">Canal</th>'
-      +'<th style="'+hdSt+'">Chats</th><th style="'+hdSt+'">Activos</th><th style="'+hdSt+'">No<br>activos</th>'
+      +'<th style="'+hdSt+'">Chats</th>'
       +'<th style="'+hdSt+'">Califica</th><th style="'+hdSt+'">No<br>califica</th><th style="'+hdSt+'">En<br>proceso</th><th style="'+hdSt+'">Bolsa</th>'
       +'<th style="'+hdSt+'">Anteced.</th><th style="'+hdSt+'">Desapro.<br>Psi.</th>'
       +'<th style="'+hdSt+'">Ev.Psic.</th><th style="'+hdSt+'">Desapro.<br>Ant.</th>'
@@ -1893,7 +1883,9 @@ function statsFilaHibrida(csContacto,csMovimiento,flota,canal,fechaLimite){
   const bm=calcStats(csMovimiento||[]);
   const ba=bolsaAcumulada(fechaLimite,flota,canal);
   return{
-    chats:bc.chats, ca:bc.activo, cn:bc.noActivo, nr:bc.califica, nd:bc.noCalif, proc:bc.enProceso,
+    // "No califica" = resto EXACTO de Chats iniciados menos Califica (nunca se calcula aparte,
+    // así siempre suman el 100% entre las dos). "No afiliados" sigue siendo el conteo real de bajas.
+    chats:bc.chats, nr:bc.califica, nd:bc.chats-bc.califica, proc:bc.enProceso,
     pre:ba.bolsa, ant:ba.ant, psi:ba.psi, cap:ba.cap,
     desaprobK:bm.desaprobK, desaprobM:bm.desaprobM, desaprobC:bm.desaprobC,
     afil:0, noAfil:bc.noCalif,
@@ -1911,16 +1903,16 @@ function tablaExcelFlota(flota, semanas_data, metaTotal, otrosMesesFilas){
     flota,canal,s.fechaLimite||finDeSemana(s.sem)
   );
   const semTots=semanas_data.map(s=>{
-    const tot={chats:0,ca:0,cn:0,nr:0,nd:0,pre:0,proc:0,ant:0,desaprobK:0,psi:0,desaprobM:0,cap:0,desaprobC:0,afil:0,noAfil:0};
+    const tot={chats:0,nr:0,nd:0,pre:0,proc:0,ant:0,desaprobK:0,psi:0,desaprobM:0,cap:0,desaprobC:0,afil:0,noAfil:0};
     CANALES.forEach(c=>{
       const st=statsFila(s,c);
       Object.keys(tot).forEach(k=>tot[k]+=st[k]);
     });
     return tot;
   });
-  const grandTot={chats:0,ca:0,cn:0,nr:0,nd:0,pre:0,proc:0,ant:0,desaprobK:0,psi:0,desaprobM:0,cap:0,desaprobC:0,afil:0,noAfil:0};
+  const grandTot={chats:0,nr:0,nd:0,pre:0,proc:0,ant:0,desaprobK:0,psi:0,desaprobM:0,cap:0,desaprobC:0,afil:0,noAfil:0};
   const canalTots={};
-  CANALES.forEach(c=>{canalTots[c]={chats:0,ca:0,cn:0,nr:0,nd:0,pre:0,proc:0,ant:0,desaprobK:0,psi:0,desaprobM:0,cap:0,desaprobC:0,afil:0,noAfil:0};});
+  CANALES.forEach(c=>{canalTots[c]={chats:0,nr:0,nd:0,pre:0,proc:0,ant:0,desaprobK:0,psi:0,desaprobM:0,cap:0,desaprobC:0,afil:0,noAfil:0};});
   semanas_data.forEach(s=>{
     CANALES.forEach(c=>{
       const st=statsFila(s,c);
@@ -3574,20 +3566,20 @@ function calcularAvances(){
   const rows=agentes.map(ag=>{
     const agIds=ST.users.filter(u=>u.nombre===ag.nombre).map(u=>u.id);
     const mis=ST.conductores.filter(c=>agIds.includes(c.agenteId)||c.agenteId===ag.id);
-    const enR=mis.filter(c=>fechas.includes(ultimaFecha(c)));
-    const s2=calcStats(enR);
-    const nuevos=mis.filter(c=>fechas.includes(c.fechaContacto)).length;
-    const pct2=meta>0?Math.round(s2.afiliado/meta*100):0;
+    const porContacto=mis.filter(c=>fechas.includes(c.fechaContacto));
+    const s2=calcStats(porContacto);
+    const nuevos=porContacto.length;
+    const bajas=s2.chats-s2.califica; // resto exacto de Chats iniciados menos Califica
+    const afiliados=mis.filter(c=>c.fechaAfiliacion&&fechas.includes(c.fechaAfiliacion)).length;
+    const pct2=meta>0?Math.round(afiliados/meta*100):0;
     const bc=pct2>=100?'#16A34A':pct2>=60?'#2563EB':pct2>=30?'#F59E0B':'#DC2626';
     const bw=Math.min(100,pct2);
     return '<tr>'
       +'<td style="padding:7px 10px;border:0.5px solid #CBD5E1;font-weight:700;font-size:12px">'
       +'<div style="display:flex;align-items:center;gap:6px"><div class="avatar" style="width:24px;height:24px;font-size:10px">'+ini(ag.nombre)+'</div>'+ag.nombre+'</div></td>'
-      +tdS(nuevos,'#374151',false)
-      +tdS(enR.length,'#374151',true)
-      +tdS(s2.activo,'#185FA5',false)
-      +tdS(s2.noCalif,'#DC2626',false)
-      +tdS(s2.afiliado,s2.afiliado>0?'#16A34A':'#374151',true)
+      +tdS(nuevos,'#374151',true)
+      +tdS(bajas,'#DC2626',false)
+      +tdS(afiliados,afiliados>0?'#16A34A':'#374151',true)
       +tdS(meta,'#6B7280',false)
       +'<td style="padding:7px 10px;border:0.5px solid #CBD5E1;min-width:140px">'
       +'<div style="display:flex;align-items:center;gap:6px">'
@@ -3600,8 +3592,8 @@ function calcularAvances(){
     +'<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">'
     +'<thead><tr>'
     +'<th style="'+hdS+';text-align:left">Afiliadora</th>'
-    +'<th style="'+hdS+'">Nuevos</th><th style="'+hdS+'">Total actividad</th>'
-    +'<th style="'+hdS+'">Activos</th><th style="'+hdS+'">Bajas</th>'
+    +'<th style="'+hdS+'">Chats<br>iniciados</th>'
+    +'<th style="'+hdS+'">Bajas</th>'
     +'<th style="'+hdS+'">Afiliados</th><th style="'+hdS+'">Meta</th>'
     +'<th style="'+hdS+'">Cumplimiento</th>'
     +'</tr></thead><tbody>'+rows+'</tbody></table></div>';
@@ -3678,7 +3670,6 @@ function renderAfiliadoras(){
       +'<td style="padding:7px 10px;border:0.5px solid #CBD5E1;font-weight:700;font-size:12px">'
       +'<div style="display:flex;align-items:center;gap:6px"><div class="avatar" style="width:26px;height:26px;font-size:10px">'+ini(ag.nombre)+'</div>'+ag.nombre+'</div></td>'
       +tdN(nuevos,'#374151',true)
-      +tdN(stContacto.activo,'#185FA5',false)
       +tdN(stContacto.noCalif,'#DC2626',false)
       +tdN(stContacto.enProceso,'#0891B2',false)
       +tdN(bolsaAg,'#5B21B6',false)
@@ -3699,7 +3690,6 @@ function renderAfiliadoras(){
   const compTotal='<tr style="background:#BFDBFE;font-weight:700">'
     +'<td style="padding:7px 10px;border:0.5px solid #CBD5E1;font-size:12px">TOTAL EQUIPO</td>'
     +tdN(gNew,'#374151',true)
-    +tdN(gStatsContacto.activo,'#185FA5',true)
     +tdN(gStatsContacto.noCalif,'#DC2626',true)
     +tdN(gStatsContacto.enProceso,'#0891B2',true)
     +tdN(gBolsa,'#5B21B6',true)
@@ -3727,7 +3717,8 @@ function renderAfiliadoras(){
     const bm=calcStats(porMovimiento);
     const afiliado=arr.filter(cx=>matchFC(cx)&&cx.fechaAfiliacion&&fechas.includes(cx.fechaAfiliacion)).length;
     return{
-      chats:bc.chats,activo:bc.activo,noActivo:bc.noActivo,califica:bc.califica,noCalif:bc.noCalif,enProceso:bc.enProceso,
+      // "No califica" = resto EXACTO de Chats menos Califica (siempre suman el 100%)
+      chats:bc.chats,califica:bc.califica,noCalif:bc.chats-bc.califica,enProceso:bc.enProceso,
       bolsa:enBolsa.length,anteced:ant,evPsic:psi,capacit:cap,
       desaprobK:bm.desaprobK,desaprobM:bm.desaprobM,desaprobC:bm.desaprobC,
       afiliado,
@@ -3838,9 +3829,8 @@ function renderAfiliadoras(){
     +'<div style="font-size:11px;color:var(--text2);margin-top:8px">Período: <strong>'+rango+'</strong> · <strong>'+dias+'</strong> día'+(dias!==1?'s':'')+' · Meta automática: <strong>'+meta+' afiliados/agente</strong></div>'
     +'</div>'
     // KPIs globales
-    +'<div class="g4" style="margin-bottom:1rem">'
+    +'<div class="g3" style="margin-bottom:1rem">'
     +'<div class="mcard"><div class="mval">'+gNew+'</div><div class="mlbl">Chats iniciados</div></div>'
-    +'<div class="mcard"><div class="mval" style="color:var(--blue)">'+gStatsContacto.activo+'</div><div class="mlbl">Activos en proceso</div></div>'
     +'<div class="mcard"><div class="mval" style="color:var(--green)">'+gAfil+'</div><div class="mlbl">Afiliados</div><div class="msub" style="color:var(--green)">'+gPct+'% de meta</div></div>'
     +'<div class="mcard"><div class="mval" style="color:var(--err)">'+gStatsContacto.noCalif+'</div><div class="mlbl">No continuaron</div></div>'
     +'</div>'
@@ -3851,7 +3841,7 @@ function renderAfiliadoras(){
     +'<thead><tr>'
     +'<th style="'+hdS+';text-align:left">Afiliadora</th>'
     +'<th style="'+hdS+'">Chats<br>iniciados</th>'
-    +'<th style="'+hdS+'">Activos</th><th style="'+hdS+'">Bajas</th>'
+    +'<th style="'+hdS+'">Bajas</th>'
     +'<th style="'+hdS+'">En proceso</th>'
     +'<th style="'+hdS+'">En Bolsa</th>'
     +'<th style="'+hdS+'">Afiliados</th><th style="'+hdS+'">Meta</th>'
