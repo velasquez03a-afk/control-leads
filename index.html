@@ -1840,7 +1840,12 @@ function calcStats(arr){
       if(c.etapa>=1) activo++;
       else noActivo++;
       if(c.etapa>=4&&c.etapa<=6) bolsa++;
-      if(c.etapa>=0&&c.etapa<=3) enProceso++;
+      // "En proceso" es un SUBCONJUNTO de "Califica" (etapa>=1): solo cuenta a los que ya
+      // calificaron pero aún no llegan a Bolsa ni se afiliaron (etapas 1, 2 o 3).
+      // Así siempre se cumple: Califica = En proceso + Bolsa + Afiliado (sin dejar a nadie fuera
+      // ni contarlo dos veces). Antes incluía también la etapa 0 (Contacto), lo que rompía esa
+      // relación con "Califica" y confundía al compararlos.
+      if(c.etapa>=1&&c.etapa<=3) enProceso++;
       if(c.etapa===4) anteced++;
       else if(c.etapa===5) evPsic++;
       else if(c.etapa===6) capacit++;
