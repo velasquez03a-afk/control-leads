@@ -1892,10 +1892,12 @@ function statsCanal(cs){
   };
 }
 
-// Calcula las estadísticas de una fila (semana+canal), todas sobre el MISMO grupo: los
-// conductores que iniciaron chat en esa semana (csContacto). Así siempre se cumple:
-// Califica = En proceso + Bolsa + Afiliado — sin mezclar con datos de otras semanas.
-// - desaprobado (K/M/C): evento puntual, cohorte por ÚLTIMO MOVIMIENTO (csMovimiento) — la baja se atribuye a la semana en que ocurrió
+// Calcula las estadísticas de una fila (semana+canal): Chats/Califica/No califica/En
+// proceso/Bolsa (y su desglose) van sobre el MISMO grupo — los que iniciaron chat esa semana
+// (csContacto) — así siempre se cumple: Califica = En proceso + Bolsa.
+// - Afiliado y Desaprobado (K/M/C): eventos puntuales, cohorte por ÚLTIMO MOVIMIENTO
+//   (csMovimiento) — se atribuyen a la semana en que realmente ocurrió ese movimiento, sin
+//   importar cuándo se inició el chat con ese conductor.
 function statsFilaHibrida(csContacto,csMovimiento,flota,canal,fechaLimite){
   const bc=calcStats(csContacto||[]);
   const bm=calcStats(csMovimiento||[]);
@@ -1905,7 +1907,7 @@ function statsFilaHibrida(csContacto,csMovimiento,flota,canal,fechaLimite){
     chats:bc.chats, nr:bc.califica, nd:bc.chats-bc.califica, proc:bc.enProceso,
     pre:bc.bolsa, ant:bc.anteced, psi:bc.evPsic, cap:bc.capacit,
     desaprobK:bm.desaprobK, desaprobM:bm.desaprobM, desaprobC:bm.desaprobC,
-    afil:bc.afiliado, noAfil:bc.noCalif,
+    afil:bm.afiliado, noAfil:bc.noCalif,
   };
 }
 
@@ -3597,7 +3599,7 @@ function calcularAvances(){
     const s2=calcStats(porContacto);
     const nuevos=porContacto.length;
     const bajas=s2.chats-s2.califica; // resto exacto de Chats iniciados menos Califica
-    const afiliados=mis.filter(c=>c.fechaAfiliacion&&fechas.includes(c.fechaAfiliacion)).length;
+    const afiliados=mis.filter(c=>c.etapa===7&&!c.dropout&&fechas.includes(ultimaFecha(c))).length;
     const pct2=meta>0?Math.round(afiliados/meta*100):0;
     const bc=pct2>=100?'#16A34A':pct2>=60?'#2563EB':pct2>=30?'#F59E0B':'#DC2626';
     const bw=Math.min(100,pct2);
@@ -3670,8 +3672,8 @@ function renderAfiliadoras(){
   const gStatsContacto=calcStats(todosPorContacto);
   // Bolsa global: ACUMULATIVA (todo el que sigue atascado hasta el final del período)
   const gBolsa=ST.conductores.filter(cx=>!cx.dropout&&ETAPAS_BOLSA.includes(cx.etapa)&&ultimaFecha(cx)<=hasta).length;
-  // Afiliados global: evento puntual, por fecha real de afiliación
-  const gAfil=ST.conductores.filter(cx=>cx.fechaAfiliacion&&fechas.includes(cx.fechaAfiliacion)).length;
+  // Afiliados global: evento puntual, por ÚLTIMO MOVIMIENTO (no depende de chats iniciados)
+  const gAfil=ST.conductores.filter(cx=>cx.etapa===7&&!cx.dropout&&fechas.includes(ultimaFecha(cx))).length;
 
   // ── Tabla comparativa ──
   const hdS='padding:8px 6px;text-align:center;border:0.5px solid #CBD5E1;font-size:10px;font-weight:700;background:#DBEAFE;color:#1e3a5f;white-space:nowrap';
@@ -3687,8 +3689,8 @@ function renderAfiliadoras(){
     // Bolsa: ACUMULATIVA — todo el que sigue atascado en Antecedentes/Psi./Capacitación hasta el
     // final del período, sin importar cuándo entró (mismo criterio que Sem/Mes y Mi resumen).
     const bolsaAg=mis.filter(cx=>!cx.dropout&&ETAPAS_BOLSA.includes(cx.etapa)&&ultimaFecha(cx)<=hasta).length;
-    // Afiliados: evento puntual, se atribuye a la fecha real de afiliación (no al último movimiento)
-    const afilEnR=mis.filter(cx=>cx.fechaAfiliacion&&fechas.includes(cx.fechaAfiliacion)).length;
+    // Afiliados: evento puntual, por ÚLTIMO MOVIMIENTO (no depende de chats iniciados)
+    const afilEnR=mis.filter(cx=>cx.etapa===7&&!cx.dropout&&fechas.includes(ultimaFecha(cx))).length;
     const nuevos=porContacto.length;
     const pctMeta=meta>0?Math.round(afilEnR/meta*100):0;
     const bc=pctMeta>=100?'#16A34A':pctMeta>=60?'#2563EB':pctMeta>=30?'#F59E0B':'#DC2626';
@@ -3742,13 +3744,12 @@ function renderAfiliadoras(){
     enBolsa.forEach(cx=>{ if(cx.etapa===4)ant++; else if(cx.etapa===5)psi++; else if(cx.etapa===6)cap++; });
     const porMovimiento=arr.filter(cx=>matchFC(cx)&&fechas.includes(ultimaFecha(cx)));
     const bm=calcStats(porMovimiento);
-    const afiliado=arr.filter(cx=>matchFC(cx)&&cx.fechaAfiliacion&&fechas.includes(cx.fechaAfiliacion)).length;
     return{
       // "No califica" = resto EXACTO de Chats menos Califica (siempre suman el 100%)
       chats:bc.chats,califica:bc.califica,noCalif:bc.chats-bc.califica,enProceso:bc.enProceso,
       bolsa:enBolsa.length,anteced:ant,evPsic:psi,capacit:cap,
       desaprobK:bm.desaprobK,desaprobM:bm.desaprobM,desaprobC:bm.desaprobC,
-      afiliado,
+      afiliado:bm.afiliado,
     };
   };
 
