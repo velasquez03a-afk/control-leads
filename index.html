@@ -735,8 +735,10 @@ function bolsaAcumulada(fechaLimite,flota,canal){
   });
   return {bolsa,ant,psi,cap};
 }
-// "En proceso": conductores actualmente en las primeras etapas (Contacto, Info enviada, Docs
-// recibidos, Formulario), antes de llegar a Bolsa. Mismo criterio: semana de su último movimiento.
+// "En proceso": conductores en las primeras etapas (Contacto, Info enviada, Docs recibidos,
+// Formulario), de entre los que iniciaron chat ESA semana (mismo grupo que "Chats iniciados").
+// A diferencia de Bolsa, esto NO es acumulativo ni por último movimiento — responde "de los que
+// contacté esta semana, cuántos siguen en las primeras etapas ahora mismo".
 const ETAPAS_EN_PROCESO=[0,1,2,3];
 function enProcesoSemana(semKey,flota){
   let n=0;
@@ -744,7 +746,8 @@ function enProcesoSemana(semKey,flota){
     if(flota&&c.flota!==flota) return;
     if(c.dropout) return;
     if(!ETAPAS_EN_PROCESO.includes(c.etapa)) return;
-    if(semDia(ultimaFecha(c))===semKey) n++;
+    if(!c.fechaContacto) return;
+    if(semDia(c.fechaContacto)===semKey) n++;
   });
   return n;
 }
@@ -1484,9 +1487,13 @@ function renderDiario(isA,isMkt){
     // Stats por subconjunto
     const stDia=(arr)=>{
       const s=calcStats(arr);
+      // "En proceso" solo cuenta a quienes fueron CONTACTADOS ese día específico (no a quienes
+      // solo tuvieron un movimiento ese día pero fueron contactados en otra fecha).
+      const soloContactadosEseDia=arr.filter(c=>c.fechaContacto===fFecha);
+      const sContacto=calcStats(soloContactadosEseDia);
       return{chats:s.chats,
              califica:s.califica,noCalifica:s.chats-s.califica,
-             bolsa:s.bolsa,enProceso:s.enProceso,anteced:s.anteced,desaprobK:s.desaprobK,
+             bolsa:s.bolsa,enProceso:sContacto.enProceso,anteced:s.anteced,desaprobK:s.desaprobK,
              evPsic:s.evPsic,desaprobM:s.desaprobM,
              afiliado:s.afiliado,noAfil:s.noAfil};
     };
@@ -1684,7 +1691,14 @@ function renderDiario(isA,isMkt){
     const nuevosDia=mis.filter(c=>c.fechaContacto===fDiaSv);
     const movDia=mis.filter(c=>c.fechaContacto!==fDiaSv&&(c.historial||[]).some(x=>x.fecha===fDiaSv));
     const todosAg=[...nuevosDia,...movDia];
-    const stAg=(arr)=>{const s=calcStats(arr);return{chats:s.chats,califica:s.califica,noCalif:s.chats-s.califica,bolsa:s.bolsa,enProceso:s.enProceso,anteced:s.anteced,desaprobK:s.desaprobK,evPsic:s.evPsic,desaprobM:s.desaprobM,capacit:s.capacit,desaprobC:s.desaprobC,afiliado:s.afiliado,noAfil:s.noAfil};};
+    const stAg=(arr)=>{
+      const s=calcStats(arr);
+      // "En proceso" solo cuenta a quienes fueron CONTACTADOS ese día específico (no a quienes
+      // solo tuvieron un movimiento ese día pero fueron contactados en otra fecha).
+      const soloContactadosEseDia=arr.filter(c=>c.fechaContacto===fDiaSv);
+      const sContacto=calcStats(soloContactadosEseDia);
+      return{chats:s.chats,califica:s.califica,noCalif:s.chats-s.califica,bolsa:s.bolsa,enProceso:sContacto.enProceso,anteced:s.anteced,desaprobK:s.desaprobK,evPsic:s.evPsic,desaprobM:s.desaprobM,capacit:s.capacit,desaprobC:s.desaprobC,afiliado:s.afiliado,noAfil:s.noAfil};
+    };
     const canalTots={};
     CANALES.forEach(canal=>{canalTots[canal]=stAg(todosAg.filter(x=>x.canal===canal));});
     const grand=stAg(todosAg);
