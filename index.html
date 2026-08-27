@@ -1232,7 +1232,7 @@ function renderConductores(isA,isMkt){
       <!-- Filtros estáticos: este div se inicializa una sola vez y NO se re-renderiza -->
       <div id="filtros-lista-wrap"></div>
       <div class="tbl-wrap"><table>
-        <thead><tr><th>Nombre</th><th>Celular</th><th>Flota</th><th>Canal</th><th>Agente</th><th>Fecha contacto</th><th>Último mov.</th><th>Etapa actual</th><th>Días</th><th>Estado</th><th style="text-align:center">Cap. 1</th><th style="text-align:center">Cap. 2</th><th>Acciones</th></tr></thead>
+        <thead><tr><th>Nombre</th><th>Celular</th><th>Flota</th><th>Canal</th><th>Agente</th><th>Fecha contacto</th><th>Último mov.</th><th>Etapa actual</th><th>Días</th><th>Estado</th><th style="text-align:center">Cap. 1</th><th style="text-align:center">Cap. 2</th><th>Cód. Unidad</th><th>Acciones</th></tr></thead>
         <tbody id="conductores-tbody">${generarFilasLista(lista.slice(0,_tablaLimite))}</tbody>
       </table></div>
       <div id="lista-mas-wrap" style="padding:10px;text-align:center">${lista.length>_tablaLimite?`<button class="btn btn-sm" onclick="mostrarMasTabla()"><i class="ti ti-chevron-down"></i> Mostrar más (${lista.length-_tablaLimite} restantes)</button>`:''}</div>
@@ -1382,6 +1382,13 @@ function verC(id){
             <div style="font-size:10px;color:${c.cap2?'#166534':'#9CA3AF'}">${c.cap2?'Completada ✓':(isMktV?'Pendiente':'Pendiente — clic aquí')}</div></div>
           </div>
         </div>
+      </div>
+      <div class="fg" style="margin:8px 0 0">
+        <label>Código de unidad</label>
+        ${isMktV
+          ?`<div style="padding:6px 10px;background:#F8FAFC;border:1px solid var(--border2);border-radius:var(--radius-sm);font-size:13px;font-weight:600;color:${c.codigoUnidad?'#1e3a5f':'#9CA3AF'}">${c.codigoUnidad||'Sin asignar'}</div>`
+          :`<input type="text" value="${c.codigoUnidad||''}" placeholder="Ej: U-1024" onchange="editarCodigoUnidad('${c.id}',this.value)" style="text-transform:uppercase">`
+        }
       </div>`
       :''}'
       ${c.dropout?`<div class="msg msg-err" style="margin-top:8px"><i class="ti ti-info-circle"></i> No continúa — ${c.motivoDropout||'Sin motivo especificado'}</div>`:''}
@@ -2190,6 +2197,17 @@ async function editarFechaAfil(id, fecha){
   c.fechaAfiliacion=fecha;
   _marcarSucio(id);
   gMsg('Fecha de afiliación actualizada: '+fecha);
+  saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
+}
+
+// El código de unidad es la identidad que le asignan al conductor una vez afiliado — se guarda
+// en mayúsculas para que quede uniforme, sin importar cómo lo escriban.
+async function editarCodigoUnidad(id, val){
+  const c=ST.conductores.find(x=>x.id===id);
+  if(!c)return;
+  c.codigoUnidad=String(val||'').trim().toUpperCase();
+  _marcarSucio(id);
+  gMsg(c.codigoUnidad?'Código de unidad guardado: '+c.codigoUnidad:'Código de unidad eliminado.');
   saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
 }
 
@@ -3007,7 +3025,7 @@ function generarFilasLista(lista){
   const u=ST.users.find(x=>x.id===ST.session);
   const isA=u&&u.role==='admin';
   const isMkt=u&&u.role==='marketing';
-  if(!lista.length) return '<tr><td colspan="13" style="padding:2rem;color:var(--text2);text-align:center">Sin conductores.</td></tr>';
+  if(!lista.length) return '<tr><td colspan="14" style="padding:2rem;color:var(--text2);text-align:center">Sin conductores.</td></tr>';
   var rows='';
   lista.forEach(function(c){
     var ag=ST.users.find(x=>x.id===c.agenteId);
@@ -3045,6 +3063,11 @@ function generarFilasLista(lista){
       +'<td>'+estado+'</td>'
       +'<td style="text-align:center">'+c1+'</td>'
       +'<td style="text-align:center">'+c2+'</td>'
+      +'<td style="font-size:11px">'
+      +(c.etapa!==7?'—':(isMkt
+        ?(c.codigoUnidad||'<span style="color:#9CA3AF">Sin asignar</span>')
+        :'<input type="text" value="'+(c.codigoUnidad||'')+'" placeholder="Ej: U-1024" onchange="editarCodigoUnidad(\'' +c.id+ '\',this.value)" style="border:1px solid var(--border2);border-radius:var(--radius-sm);padding:2px 5px;font-size:11px;width:90px;background:var(--bg2);text-transform:uppercase">'
+      ))+'</td>'
       +'<td><div style="display:flex;gap:3px;justify-content:center">'
         +'<button onclick="verC(\'' +c.id+ '\')" class="btn btn-sm" style="padding:3px 7px"><i class="ti ti-eye" style="color:var(--blue)"></i></button>'
         +(isA?'<button onclick="elimC(\'' +c.id+ '\')" class="btn btn-sm btn-danger" style="padding:3px 7px"><i class="ti ti-trash"></i></button>':'')
@@ -3463,13 +3486,14 @@ function renderSupervisionMerged(){
       +'<td>'+estado+'</td>'
       +'<td style="text-align:center">'+cap1+'</td>'
       +'<td style="text-align:center">'+cap2+'</td>'
+      +'<td style="font-size:11px">'+(c.etapa!==7?'—':'<input type="text" value="'+(c.codigoUnidad||'')+'" placeholder="Ej: U-1024" onchange="editarCodigoUnidad(\''+c.id+'\',this.value)" style="border:1px solid var(--border2);border-radius:var(--radius-sm);padding:2px 5px;font-size:11px;width:90px;background:var(--bg2);text-transform:uppercase">')+'</td>'
       +'<td style="font-size:11px;color:var(--text2)">'+(c.motivoDropout||'—')+'</td>'
       +'<td style="text-align:center"><div style="display:flex;gap:3px;justify-content:center">'
       +'<button onclick="verConductor(this)" data-id="'+c.id+'" class="btn btn-sm" style="padding:3px 7px"><i class="ti ti-eye" style="color:var(--blue)"></i></button>'
       +'<button onclick="elimC(\''+c.id+'\')" class="btn btn-sm" style="padding:3px 7px;background:#FEF2F2;border-color:#FECACA"><i class="ti ti-trash" style="color:#DC2626"></i></button>'
       +'</div></td>'
       +'</tr>';
-  }).join('') || '<tr><td colspan="14" style="padding:2rem;text-align:center;color:var(--text2)">Sin resultados.</td></tr>';
+  }).join('') || '<tr><td colspan="15" style="padding:2rem;text-align:center;color:var(--text2)">Sin resultados.</td></tr>';
 
   // Store base for Excel export
   window.base_sv2=base;
@@ -3482,7 +3506,7 @@ function renderSupervisionMerged(){
     +'<div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:1rem">'+kpiCards+'</div>'
     +filtersHTML
     +'<div class="card" style="padding:0;overflow:hidden"><div class="tbl-wrap"><table id="sv2-table">'
-    +'<thead><tr><th>Nombre</th><th>Celular</th><th>Flota</th><th>Canal</th><th>Agente</th><th>Contacto</th><th>Último mov.</th><th>Días</th><th>Etapa</th><th>Estado</th><th style="text-align:center">Cap.1</th><th style="text-align:center">Cap.2</th><th>Motivo baja</th><th></th></tr></thead>'
+    +'<thead><tr><th>Nombre</th><th>Celular</th><th>Flota</th><th>Canal</th><th>Agente</th><th>Contacto</th><th>Último mov.</th><th>Días</th><th>Etapa</th><th>Estado</th><th style="text-align:center">Cap.1</th><th style="text-align:center">Cap.2</th><th>Cód. Unidad</th><th>Motivo baja</th><th></th></tr></thead>'
     +'<tbody>'+rows+'</tbody>'
     +'</table></div>'
     +(base.length>_sv2Limite?'<div style="padding:10px;text-align:center"><button class="btn btn-sm" onclick="mostrarMasSV2()"><i class="ti ti-chevron-down"></i> Mostrar más ('+(base.length-_sv2Limite)+' restantes)</button></div>':'')
@@ -4467,7 +4491,7 @@ function exportarXLSX(filas,nombre){
   const ag_name=(id)=>{const u=ST.users.find(x=>x.id===id);return u?u.nombre:'';};
   let html='<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="UTF-8"></head><body><table border="1">';
   html+='<tr style="background:#1e3a5f;color:#ffffff;font-weight:bold;font-size:12px">';
-  ['#','Nombre','Celular','Flota','Canal','Agente','Fecha contacto','Ultimo movimiento','Dias en proceso','Etapa actual','Estado','Motivo baja'].forEach(h=>{html+='<td style="padding:6px 10px">'+h+'</td>';});
+  ['#','Nombre','Celular','Flota','Canal','Agente','Fecha contacto','Ultimo movimiento','Dias en proceso','Etapa actual','Estado','Codigo de unidad','Motivo baja'].forEach(h=>{html+='<td style="padding:6px 10px">'+h+'</td>';});
   html+='</tr>';
   filas.forEach((c,i)=>{
     const et=c.dropout?'No continua':(ETAPAS[c.etapa]?ETAPAS[c.etapa].label:'');
@@ -4486,6 +4510,7 @@ function exportarXLSX(filas,nombre){
     html+='<td>'+et+'</td>';
     const estadoColor=c.etapa===7?'color:#166534;font-weight:bold':c.dropout?'color:#A32D2D;font-weight:bold':'color:#185FA5';
     html+='<td style="'+estadoColor+'">'+estado+'</td>';
+    html+='<td>'+(c.codigoUnidad||'')+'</td>';
     html+='<td>'+(c.motivoDropout||'')+'</td>';
     html+='</tr>';
   });
