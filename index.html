@@ -2626,8 +2626,53 @@ function verConvertidosSemana(semKey,flota){
     </div></div>`;
 }
 
+// Descarga la tabla "Bolsa semanal por flota" (últimas 4 semanas) como archivo Excel.
+async function descargarBolsaSemanal(){
+  gMsg('Preparando descarga...');
+  await cargarXLSX();
+  const semanas=ultimasSemanas(4).reverse();
+  const valor=(semKey,flota)=>{
+    const cong=ST.bolsaHistorial&&ST.bolsaHistorial[semKey];
+    if(cong&&cong.porFlota&&cong.porFlota[flota]) return cong.porFlota[flota];
+    return {
+      chatsIniciados:chatsIniciadosSemana(semKey,flota),
+      enProceso:enProcesoSemana(semKey,flota),
+      bolsa:bolsaSemana(semKey,flota),
+      convertidos:convertidosSemana(semKey,flota)
+    };
+  };
+  const esEnCurso=(semKey)=>!(ST.bolsaHistorial&&ST.bolsaHistorial[semKey]);
+  const fila1=['Flota'], fila2=[''];
+  semanas.forEach(s=>{
+    fila1.push(semRng(s)+(esEnCurso(s)?' (en curso)':''),'','','');
+    fila2.push('Chats','Proceso','Bolsa','Conv.');
+  });
+  const aoa=[fila1,fila2];
+  const totales={};
+  semanas.forEach(s=>{totales[s]={chats:0,proc:0,bolsa:0,conv:0};});
+  FLOTAS.forEach(flota=>{
+    const fila=[flota];
+    semanas.forEach(s=>{
+      const v=valor(s,flota);
+      fila.push(v.chatsIniciados??'',v.enProceso??'',v.bolsa,v.convertidos);
+      if(typeof v.chatsIniciados==='number') totales[s].chats+=v.chatsIniciados;
+      if(typeof v.enProceso==='number') totales[s].proc+=v.enProceso;
+      totales[s].bolsa+=v.bolsa; totales[s].conv+=v.convertidos;
+    });
+    aoa.push(fila);
+  });
+  const filaTotal=['Total'];
+  semanas.forEach(s=>{ filaTotal.push(totales[s].chats,totales[s].proc,totales[s].bolsa,totales[s].conv); });
+  aoa.push(filaTotal);
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  ws['!merges']=semanas.map((s,i)=>({s:{r:0,c:1+i*4},e:{r:0,c:4+i*4}}));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Bolsa semanal');
+  XLSX.writeFile(wb,'bolsa_semanal_'+hoy()+'.xlsx');
+}
+
 function renderReporteBolsa(){
-  const nSemanas=parseInt(document.getElementById('bolsa-nsem')?.value)||8;
+  const nSemanas=4; // vista fija en las últimas 4 semanas
   const semanas=ultimasSemanas(nSemanas).reverse(); // de más antigua a más reciente, para leer de izq. a der.
 
   const totales={};
@@ -2664,14 +2709,9 @@ function renderReporteBolsa(){
     <div style="padding:10px 14px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
       <div>
         <div style="font-size:13px;font-weight:700"><i class="ti ti-briefcase" style="color:#7C3AED;margin-right:4px"></i>Bolsa semanal por flota</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:2px">Chats iniciados: primer contacto esa semana · En proceso: Contacto/Info/Docs/Formulario · Bolsa: Antecedentes/Psi./Capacitación · Convertidos: se afiliaron esa semana. Cada semana que ya cerró queda guardada tal cual (cierre los domingos).</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">Chats iniciados: primer contacto esa semana · En proceso: Contacto/Info/Docs/Formulario · Bolsa: Antecedentes/Psi./Capacitación · Convertidos: se afiliaron esa semana. Cada semana que ya cerró queda guardada tal cual (cierre los domingos). Vista de las últimas 4 semanas.</div>
       </div>
-      <div class="fg" style="margin:0;max-width:160px">
-        <label style="font-size:10px">Semanas a mostrar</label>
-        <select id="bolsa-nsem" onchange="renderSec()">
-          ${[4,8,12,26].map(n=>`<option value="${n}" ${n===nSemanas?'selected':''}>${n} semanas</option>`).join('')}
-        </select>
-      </div>
+      <button class="btn btn-sm" style="background:#F0FDF4;border-color:#BBF7D0;color:#166534" onclick="descargarBolsaSemanal()"><i class="ti ti-download"></i> Descargar</button>
     </div>
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
       <thead>
