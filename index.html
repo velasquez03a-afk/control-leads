@@ -1519,7 +1519,7 @@ function renderDiario(isA,isMkt){
              califica:s.califica,noCalifica:s.chats-s.califica,
              bolsa:s.bolsa,enProceso:sContacto.enProceso,anteced:s.anteced,desaprobK:s.desaprobK,
              evPsic:s.evPsic,desaprobM:s.desaprobM,
-             afiliado:s.afiliado,noAfil:s.noAfil};
+             afiliado:s.afiliado,noAfil:s.chats-s.afiliado};
     };
 
     const hdSt='padding:6px 4px;text-align:center;border:0.5px solid #CBD5E1;font-size:10px;font-weight:700;background:#DBEAFE;color:#1e3a5f;white-space:nowrap';
@@ -1721,7 +1721,7 @@ function renderDiario(isA,isMkt){
       // solo tuvieron un movimiento ese día pero fueron contactados en otra fecha).
       const soloContactadosEseDia=arr.filter(c=>c.fechaContacto===fDiaSv);
       const sContacto=calcStats(soloContactadosEseDia);
-      return{chats:s.chats,califica:s.califica,noCalif:s.chats-s.califica,bolsa:s.bolsa,enProceso:sContacto.enProceso,anteced:s.anteced,desaprobK:s.desaprobK,evPsic:s.evPsic,desaprobM:s.desaprobM,capacit:s.capacit,desaprobC:s.desaprobC,afiliado:s.afiliado,noAfil:s.noAfil};
+      return{chats:s.chats,califica:s.califica,noCalif:s.chats-s.califica,bolsa:s.bolsa,enProceso:sContacto.enProceso,anteced:s.anteced,desaprobK:s.desaprobK,evPsic:s.evPsic,desaprobM:s.desaprobM,capacit:s.capacit,desaprobC:s.desaprobC,afiliado:s.afiliado,noAfil:s.chats-s.afiliado};
     };
     const canalTots={};
     CANALES.forEach(canal=>{canalTots[canal]=stAg(todosAg.filter(x=>x.canal===canal));});
@@ -1919,12 +1919,13 @@ function statsFilaHibrida(csContacto,csMovimiento,flota,canal,fechaLimite){
   const bc=calcStats(csContacto||[]);
   const bm=calcStats(csMovimiento||[]);
   return{
-    // "No califica" = resto EXACTO de Chats iniciados menos Califica (nunca se calcula aparte,
-    // así siempre suman el 100% entre las dos). "No afiliados" sigue siendo el conteo real de bajas.
+    // "No califica" = resto EXACTO de Chats iniciados menos Califica.
+    // "No afiliados" = resto EXACTO de Chats iniciados menos Afiliados (nunca se calcula aparte,
+    // así siempre suman el 100% entre las dos: todo el que inició chat, o se afilió o no).
     chats:bc.chats, nr:bc.califica, nd:bc.chats-bc.califica, proc:bc.enProceso,
     pre:bc.bolsa, ant:bc.anteced, psi:bc.evPsic, cap:bc.capacit,
     desaprobK:bm.desaprobK, desaprobM:bm.desaprobM, desaprobC:bm.desaprobC,
-    afil:bm.afiliado, noAfil:bc.noCalif,
+    afil:bm.afiliado, noAfil:bc.chats-bm.afiliado,
   };
 }
 
