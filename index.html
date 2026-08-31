@@ -772,18 +772,17 @@ function chatsIniciadosSemana(semKey,flota){
   });
   return n;
 }
-// Conversión (Afiliación): conductores que se afiliaron (llegaron a etapa 7) dentro de esa semana
-// Y SIGUEN siendo afiliados actualmente (no se dieron de baja después). Si a alguien se le marca
-// "No continúa" tras haberse afiliado, su fechaAfiliacion queda guardada (es historial real), pero
-// ya no debe contar como una conversión vigente.
+// Conversión (Afiliación): conductores que llegaron a etapa 7 y su ÚLTIMO MOVIMIENTO cayó dentro
+// de esa semana — MISMO criterio que usa "Afiliado" en Sem/Mes y Mi resumen, para que ambos
+// reportes siempre coincidan. Ya no se usa la fecha de afiliación (fechaAfiliacion) porque puede
+// desincronizarse del historial real si alguien la corrige manualmente sin agregar un movimiento.
 function convertidosSemana(semKey,flota){
   let n=0;
   ST.conductores.forEach(c=>{
     if(flota&&c.flota!==flota) return;
     if(c.dropout) return; // se dio de baja después: ya no cuenta como conversión vigente
     if(c.etapa!==7) return; // ya no está en la etapa Afiliado (se corrigió/revirtió)
-    if(!c.fechaAfiliacion) return;
-    if(semDia(c.fechaAfiliacion)===semKey) n++;
+    if(semDia(ultimaFecha(c))===semKey) n++;
   });
   return n;
 }
@@ -818,18 +817,18 @@ function capturarBolsaSemanasVencidas(){
 }
 
 // ── CORREGIR CRITERIO DE BOLSA/EN PROCESO/CONVERTIDOS EN SEMANAS YA CONGELADAS ─────────
-// "Convertidos" ahora excluye a quienes se dieron de baja DESPUÉS de haberse afiliado, o cuya
-// etapa ya no es Afiliado (se corrigió/revirtió) — antes seguían contando aunque ya no fueran una
-// conversión vigente. Esto es una CORRECCIÓN de cálculo, no un cambio de criterio de negocio, así
-// que las semanas ya congeladas se recalculan UNA VEZ MÁS (se marcan con "criterioV6").
-// Las semanas cargadas MANUALMENTE nunca se tocan aquí.
+// "Convertidos" ahora usa ÚLTIMO MOVIMIENTO (no fecha de afiliación), el MISMO criterio que
+// "Afiliado" en Sem/Mes y Mi resumen — para que ambos reportes siempre coincidan exactamente.
+// Esto es una CORRECCIÓN de cálculo, no un cambio de criterio de negocio, así que las semanas ya
+// congeladas se recalculan UNA VEZ MÁS (se marcan con "criterioV7"). Las semanas cargadas
+// MANUALMENTE nunca se tocan aquí.
 function corregirCriterioBolsaAntiguo(){
   ST.bolsaHistorial=ST.bolsaHistorial||{};
   let huboCambios=false;
   Object.keys(ST.bolsaHistorial).forEach(semKey=>{
     if(semKey.startsWith('_')) return; // marcas de control (ej. "_limpiezaInicialHecha"), no son semanas
     const entry=ST.bolsaHistorial[semKey];
-    if(!entry||entry.manual||entry.criterioV6) return; // manual o ya corregida: no se toca
+    if(!entry||entry.manual||entry.criterioV7) return; // manual o ya corregida: no se toca
     entry.porFlota=entry.porFlota||{};
     FLOTAS.forEach(f=>{
       entry.porFlota[f]=entry.porFlota[f]||{};
@@ -843,6 +842,7 @@ function corregirCriterioBolsaAntiguo(){
     entry.criterioV4=true;
     entry.criterioV5=true;
     entry.criterioV6=true;
+    entry.criterioV7=true;
     huboCambios=true;
   });
   return huboCambios;
@@ -2524,15 +2524,73 @@ function renderInversion(isA){
 // el supervisor pueda ver EXACTAMENTE a quién está contando el sistema y detectar si alguno no
 // debería estar ahí, en vez de adivinar a ciegas.
 function listaConvertidosSemana(semKey,flota){
-  const desde=inicioDeSemana(semKey), hasta=finDeSemana(semKey);
   return ST.conductores.filter(c=>{
+    if(flota&&c.flota!==flota) return false;
+    if(c.dropout) return false;
+    if(c.etapa!==7) return false;
+    return semDia(ultimaFecha(c))===semKey;
+  });
+}
+// Compara los dos criterios que usan los reportes: Marketing cuenta "Convertidos" por FECHA DE
+// AFILIACIÓN (c.fechaAfiliacion); Sem/Mes cuenta "Afiliado" por ÚLTIMO MOVIMIENTO (ultimaFecha).
+// Casi siempre son la misma fecha, pero si alguien editó manualmente la fecha de afiliación (o
+// hay algún historial inconsistente), pueden no coincidir — esto encuentra EXACTAMENTE a quién.
+function compararConvertidos(semKey,flota){
+  const porFechaAfiliacion=ST.conductores.filter(c=>{
     if(flota&&c.flota!==flota) return false;
     if(c.dropout) return false;
     if(c.etapa!==7) return false;
     if(!c.fechaAfiliacion) return false;
     return semDia(c.fechaAfiliacion)===semKey;
   });
+  const porUltimoMovimiento=ST.conductores.filter(c=>{
+    if(flota&&c.flota!==flota) return false;
+    if(c.dropout) return false;
+    if(c.etapa!==7) return false;
+    return semDia(ultimaFecha(c))===semKey;
+  });
+  const idsA=new Set(porFechaAfiliacion.map(c=>c.id));
+  const idsB=new Set(porUltimoMovimiento.map(c=>c.id));
+  const soloEnMarketing=porFechaAfiliacion.filter(c=>!idsB.has(c.id)); // cuenta en Marketing, no en Sem/Mes
+  const soloEnSemMes=porUltimoMovimiento.filter(c=>!idsA.has(c.id));   // cuenta en Sem/Mes, no en Marketing
+  return {porFechaAfiliacion,porUltimoMovimiento,soloEnMarketing,soloEnSemMes};
 }
+function verComparacionConvertidos(semKey,flota){
+  const r=compararConvertidos(semKey,flota);
+  const filaMismatch=(c,motivo)=>{
+    const ag=ST.users.find(u=>u.id===c.agenteId);
+    return `<tr>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600">${c.nombre}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px">${c.celular||'—'}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px">${ag?ag.nombre:'—'}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;color:#166534">${c.fechaAfiliacion||'—'}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;color:#7C3AED">${ultimaFecha(c)||'—'}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:11px;color:#B45309">${motivo}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:center"><button class="btn btn-sm" onclick="closeM();verC('${c.id}')" title="Ver conductor"><i class="ti ti-eye"></i></button></td>
+    </tr>`;
+  };
+  const filas=[
+    ...r.soloEnMarketing.map(c=>filaMismatch(c,'Cuenta en Marketing, no en Sem/Mes')),
+    ...r.soloEnSemMes.map(c=>filaMismatch(c,'Cuenta en Sem/Mes, no en Marketing')),
+  ].join('');
+  const totalMismatch=r.soloEnMarketing.length+r.soloEnSemMes.length;
+  document.getElementById('modal-container').innerHTML=`
+    <div class="modal-overlay" onclick="if(event.target===this)closeM()"><div class="modal-box" style="max-width:760px">
+      <div class="card-title"><i class="ti ti-arrows-diff" style="color:#B45309"></i> Comparación Marketing vs Sem/Mes — ${flota||'Todas las flotas'} — ${semRng(semKey)}</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px">
+        Marketing (por fecha de afiliación): <strong style="color:#166534">${r.porFechaAfiliacion.length}</strong> ·
+        Sem/Mes (por último movimiento): <strong style="color:#7C3AED">${r.porUltimoMovimiento.length}</strong> ·
+        No coinciden: <strong style="color:#B45309">${totalMismatch}</strong>
+      </div>
+      ${totalMismatch===0?'<div class="msg msg-ok"><i class="ti ti-check"></i> Ambos criterios dan exactamente los mismos conductores esta semana.</div>':`
+      <div style="overflow-x:auto;max-height:420px;overflow-y:auto"><table style="width:100%;border-collapse:collapse">
+        <thead><tr style="background:var(--bg3)"><th style="padding:6px 8px;text-align:left;font-size:11px">Nombre</th><th style="padding:6px 8px;text-align:left;font-size:11px">Celular</th><th style="padding:6px 8px;text-align:left;font-size:11px">Agente</th><th style="padding:6px 8px;text-align:left;font-size:11px">Fecha afiliación</th><th style="padding:6px 8px;text-align:left;font-size:11px">Último movimiento</th><th style="padding:6px 8px;text-align:left;font-size:11px">Por qué no coincide</th><th></th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table></div>`}
+      <div style="margin-top:12px;text-align:right"><button class="btn btn-sm" onclick="closeM()">Cerrar</button></div>
+    </div></div>`;
+}
+
 function verConvertidosSemana(semKey,flota){
   const lista=listaConvertidosSemana(semKey,flota);
   const cong=ST.bolsaHistorial&&ST.bolsaHistorial[semKey];
@@ -2560,7 +2618,10 @@ function verConvertidosSemana(semKey,flota){
         <thead><tr style="background:var(--bg3)"><th style="padding:6px 8px;text-align:left;font-size:11px">Nombre</th><th style="padding:6px 8px;text-align:left;font-size:11px">Celular</th><th style="padding:6px 8px;text-align:left;font-size:11px">Canal</th><th style="padding:6px 8px;text-align:left;font-size:11px">Agente</th><th style="padding:6px 8px;text-align:left;font-size:11px">Fecha afiliación</th><th></th></tr></thead>
         <tbody>${filas}</tbody>
       </table></div>
-      <div style="margin-top:12px;text-align:right"><button class="btn btn-sm" onclick="closeM()">Cerrar</button></div>
+      <div style="margin-top:12px;display:flex;justify-content:space-between;gap:8px">
+        <button class="btn btn-sm" style="background:#FEF3C7;border-color:#FDE68A;color:#92400E" onclick="verComparacionConvertidos('${semKey}','${flota||''}')"><i class="ti ti-arrows-diff"></i> Comparar con Sem/Mes</button>
+        <button class="btn btn-sm" onclick="closeM()">Cerrar</button>
+      </div>
     </div></div>`;
 }
 
