@@ -516,13 +516,18 @@ async function initBin(){
     ST.syncErr=true;
   }
   // Marcar automáticamente conductores inactivos hace 15+ días (sin afectar nada más)
-  const _cambiosInactivos=_autoMarcarInactivos();
-  // Congelar en el historial las semanas de "Bolsa" que ya cerraron y todavía no tenían foto guardada
-  const _huboLimpieza=limpiarBolsaHistorialAntiguo();
-  const _huboNuevasBolsa=capturarBolsaSemanasVencidas();
-  const _huboCompletado=corregirCriterioBolsaAntiguo();
-  const _huboDenisse=crearAgenteDenisse();
-  if(_cambiosInactivos>0||_huboLimpieza||_huboNuevasBolsa||_huboCompletado||_huboDenisse) await saveBin();
+  // Todo esto va envuelto en try/catch: si alguna migración falla con datos reales que no
+  // esperábamos, NO debe dejar la app trabada en "Conectando..." — mejor seguir sin esa
+  // migración puntual que bloquear el uso de toda la app.
+  let _cambiosInactivos=0,_huboLimpieza=false,_huboNuevasBolsa=false,_huboCompletado=false,_huboDenisse=false;
+  try{ _cambiosInactivos=_autoMarcarInactivos(); }catch(e){ console.error('Error en _autoMarcarInactivos:',e); }
+  try{ _huboLimpieza=limpiarBolsaHistorialAntiguo(); }catch(e){ console.error('Error en limpiarBolsaHistorialAntiguo:',e); }
+  try{ _huboNuevasBolsa=capturarBolsaSemanasVencidas(); }catch(e){ console.error('Error en capturarBolsaSemanasVencidas:',e); }
+  try{ _huboCompletado=corregirCriterioBolsaAntiguo(); }catch(e){ console.error('Error en corregirCriterioBolsaAntiguo:',e); }
+  try{ _huboDenisse=crearAgenteDenisse(); }catch(e){ console.error('Error en crearAgenteDenisse:',e); }
+  if(_cambiosInactivos>0||_huboLimpieza||_huboNuevasBolsa||_huboCompletado||_huboDenisse){
+    try{ await saveBin(); }catch(e){ console.error('Error guardando tras migraciones:',e); }
+  }
   syncBadge();
   renderSec();
   // Si la primera conexión falló (ej. señal inestable justo al abrir), reintenta pronto en vez de
