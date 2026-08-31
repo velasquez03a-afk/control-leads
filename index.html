@@ -772,12 +772,16 @@ function chatsIniciadosSemana(semKey,flota){
   });
   return n;
 }
-// Conversión (Afiliación): conductores que se afiliaron (llegaron a etapa 7) dentro de esa semana.
-// fechaAfiliacion ya es, por definición, la fecha de su último movimiento a esa etapa.
+// Conversión (Afiliación): conductores que se afiliaron (llegaron a etapa 7) dentro de esa semana
+// Y SIGUEN siendo afiliados actualmente (no se dieron de baja después). Si a alguien se le marca
+// "No continúa" tras haberse afiliado, su fechaAfiliacion queda guardada (es historial real), pero
+// ya no debe contar como una conversión vigente.
 function convertidosSemana(semKey,flota){
   let n=0;
   ST.conductores.forEach(c=>{
     if(flota&&c.flota!==flota) return;
+    if(c.dropout) return; // se dio de baja después: ya no cuenta como conversión vigente
+    if(c.etapa!==7) return; // ya no está en la etapa Afiliado (se corrigió/revirtió)
     if(!c.fechaAfiliacion) return;
     if(semDia(c.fechaAfiliacion)===semKey) n++;
   });
@@ -814,20 +818,18 @@ function capturarBolsaSemanasVencidas(){
 }
 
 // ── CORREGIR CRITERIO DE BOLSA/EN PROCESO/CONVERTIDOS EN SEMANAS YA CONGELADAS ─────────
-// El cálculo de "Bolsa" cambió otra vez: ahora cuenta a TODOS los que pasaron por Bolsa esa
-// semana según su historial (aunque después hayan avanzado a Afiliado o se hayan dado de baja
-// esa misma semana), para que "Convertidos" nunca sea mayor que "Bolsa". Además, "Convertidos"
-// antes solo se completaba si estaba vacío — nunca se corregía si ya tenía un valor desde una
-// versión anterior. Ahora también se recalcula siempre. Esto es una CORRECCIÓN de cálculo, no un
-// cambio de criterio de negocio, así que las semanas ya congeladas se recalculan UNA VEZ MÁS
-// (se marcan con "criterioV5"). Las semanas cargadas MANUALMENTE nunca se tocan aquí.
+// "Convertidos" ahora excluye a quienes se dieron de baja DESPUÉS de haberse afiliado, o cuya
+// etapa ya no es Afiliado (se corrigió/revirtió) — antes seguían contando aunque ya no fueran una
+// conversión vigente. Esto es una CORRECCIÓN de cálculo, no un cambio de criterio de negocio, así
+// que las semanas ya congeladas se recalculan UNA VEZ MÁS (se marcan con "criterioV6").
+// Las semanas cargadas MANUALMENTE nunca se tocan aquí.
 function corregirCriterioBolsaAntiguo(){
   ST.bolsaHistorial=ST.bolsaHistorial||{};
   let huboCambios=false;
   Object.keys(ST.bolsaHistorial).forEach(semKey=>{
     if(semKey.startsWith('_')) return; // marcas de control (ej. "_limpiezaInicialHecha"), no son semanas
     const entry=ST.bolsaHistorial[semKey];
-    if(!entry||entry.manual||entry.criterioV5) return; // manual o ya corregida: no se toca
+    if(!entry||entry.manual||entry.criterioV6) return; // manual o ya corregida: no se toca
     entry.porFlota=entry.porFlota||{};
     FLOTAS.forEach(f=>{
       entry.porFlota[f]=entry.porFlota[f]||{};
@@ -840,6 +842,7 @@ function corregirCriterioBolsaAntiguo(){
     entry.criterioV3=true;
     entry.criterioV4=true;
     entry.criterioV5=true;
+    entry.criterioV6=true;
     huboCambios=true;
   });
   return huboCambios;
