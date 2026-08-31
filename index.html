@@ -813,30 +813,32 @@ function capturarBolsaSemanasVencidas(){
   return huboNuevas;
 }
 
-// ── CORREGIR CRITERIO DE BOLSA/EN PROCESO EN SEMANAS YA CONGELADAS ─────────
+// ── CORREGIR CRITERIO DE BOLSA/EN PROCESO/CONVERTIDOS EN SEMANAS YA CONGELADAS ─────────
 // El cálculo de "Bolsa" cambió otra vez: ahora cuenta a TODOS los que pasaron por Bolsa esa
 // semana según su historial (aunque después hayan avanzado a Afiliado o se hayan dado de baja
-// esa misma semana), para que "Convertidos" nunca sea mayor que "Bolsa". Esto es una CORRECCIÓN
-// de cálculo, no un cambio de criterio de negocio, así que las semanas que el sistema ya había
-// congelado se recalculan UNA SOLA VEZ MÁS con el criterio correcto (se marcan con "criterioV3").
-// Las semanas cargadas MANUALMENTE (histórico previo al sistema) nunca se tocan aquí.
+// esa misma semana), para que "Convertidos" nunca sea mayor que "Bolsa". Además, "Convertidos"
+// antes solo se completaba si estaba vacío — nunca se corregía si ya tenía un valor desde una
+// versión anterior. Ahora también se recalcula siempre. Esto es una CORRECCIÓN de cálculo, no un
+// cambio de criterio de negocio, así que las semanas ya congeladas se recalculan UNA VEZ MÁS
+// (se marcan con "criterioV4"). Las semanas cargadas MANUALMENTE nunca se tocan aquí.
 function corregirCriterioBolsaAntiguo(){
   ST.bolsaHistorial=ST.bolsaHistorial||{};
   let huboCambios=false;
   Object.keys(ST.bolsaHistorial).forEach(semKey=>{
     if(semKey.startsWith('_')) return; // marcas de control (ej. "_limpiezaInicialHecha"), no son semanas
     const entry=ST.bolsaHistorial[semKey];
-    if(!entry||entry.manual||entry.criterioV3) return; // manual o ya corregida: no se toca
+    if(!entry||entry.manual||entry.criterioV4) return; // manual o ya corregida: no se toca
     entry.porFlota=entry.porFlota||{};
     FLOTAS.forEach(f=>{
       entry.porFlota[f]=entry.porFlota[f]||{};
       entry.porFlota[f].bolsa=bolsaSemana(semKey,f);
       entry.porFlota[f].enProceso=enProcesoSemana(semKey,f);
+      entry.porFlota[f].convertidos=convertidosSemana(semKey,f);
       if(entry.porFlota[f].chatsIniciados===undefined) entry.porFlota[f].chatsIniciados=chatsIniciadosSemana(semKey,f);
-      if(entry.porFlota[f].convertidos===undefined) entry.porFlota[f].convertidos=convertidosSemana(semKey,f);
     });
     entry.criterioV2=true;
     entry.criterioV3=true;
+    entry.criterioV4=true;
     huboCambios=true;
   });
   return huboCambios;
