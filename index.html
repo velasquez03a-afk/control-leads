@@ -2520,6 +2520,50 @@ function renderInversion(isA){
 // Filas = Flota. Por cada semana (cierre domingo) se muestra cuántos conductores se quedaron
 // "en bolsa" (Antecedentes, Entrevista Psi. o Capacitación, sin llegar a Afiliado) y cuántos
 // lograron convertirse (afiliarse) esa misma semana.
+// Lista de nombres de los conductores contados como "Convertidos" en una semana/flota — para que
+// el supervisor pueda ver EXACTAMENTE a quién está contando el sistema y detectar si alguno no
+// debería estar ahí, en vez de adivinar a ciegas.
+function listaConvertidosSemana(semKey,flota){
+  const desde=inicioDeSemana(semKey), hasta=finDeSemana(semKey);
+  return ST.conductores.filter(c=>{
+    if(flota&&c.flota!==flota) return false;
+    if(c.dropout) return false;
+    if(c.etapa!==7) return false;
+    if(!c.fechaAfiliacion) return false;
+    return semDia(c.fechaAfiliacion)===semKey;
+  });
+}
+function verConvertidosSemana(semKey,flota){
+  const lista=listaConvertidosSemana(semKey,flota);
+  const cong=ST.bolsaHistorial&&ST.bolsaHistorial[semKey];
+  const valorCongelado=cong&&cong.porFlota&&flota&&cong.porFlota[flota]?cong.porFlota[flota].convertidos:null;
+  const avisoDesfase=(valorCongelado!==null&&valorCongelado!==lista.length)
+    ?`<div class="msg msg-err" style="margin-bottom:10px"><i class="ti ti-alert-triangle"></i> Esta semana está congelada con el valor <strong>${valorCongelado}</strong>, pero recalculando ahora con los datos actuales da <strong>${lista.length}</strong>. Los datos cambiaron después de que esta semana se cerró.</div>`
+    :'';
+  const filas=lista.length?lista.map(c=>{
+    const ag=ST.users.find(u=>u.id===c.agenteId);
+    return `<tr>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600">${c.nombre}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px">${c.celular||'—'}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px">${c.canal||'—'}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px">${ag?ag.nombre:'—'}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:12px">${c.fechaAfiliacion}</td>
+      <td style="padding:6px 8px;border-bottom:1px solid var(--border);text-align:center"><button class="btn btn-sm" onclick="closeM();verC('${c.id}')" title="Ver conductor"><i class="ti ti-eye"></i></button></td>
+    </tr>`;
+  }).join(''):'<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text2)">No hay conductores contados aquí.</td></tr>';
+  document.getElementById('modal-container').innerHTML=`
+    <div class="modal-overlay" onclick="if(event.target===this)closeM()"><div class="modal-box" style="max-width:640px">
+      <div class="card-title"><i class="ti ti-list-check" style="color:#166534"></i> Convertidos — ${flota||'Todas las flotas'} — ${semRng(semKey)}</div>
+      <div style="font-size:12px;color:var(--text2);margin-bottom:10px">${lista.length} conductor(es). Si alguno no debería estar aquí, haz clic en el ícono de ojo para revisar su historial completo.</div>
+      ${avisoDesfase}
+      <div style="overflow-x:auto;max-height:400px;overflow-y:auto"><table style="width:100%;border-collapse:collapse">
+        <thead><tr style="background:var(--bg3)"><th style="padding:6px 8px;text-align:left;font-size:11px">Nombre</th><th style="padding:6px 8px;text-align:left;font-size:11px">Celular</th><th style="padding:6px 8px;text-align:left;font-size:11px">Canal</th><th style="padding:6px 8px;text-align:left;font-size:11px">Agente</th><th style="padding:6px 8px;text-align:left;font-size:11px">Fecha afiliación</th><th></th></tr></thead>
+        <tbody>${filas}</tbody>
+      </table></div>
+      <div style="margin-top:12px;text-align:right"><button class="btn btn-sm" onclick="closeM()">Cerrar</button></div>
+    </div></div>`;
+}
+
 function renderReporteBolsa(){
   const nSemanas=parseInt(document.getElementById('bolsa-nsem')?.value)||8;
   const semanas=ultimasSemanas(nSemanas).reverse(); // de más antigua a más reciente, para leer de izq. a der.
@@ -2580,11 +2624,11 @@ function renderReporteBolsa(){
       <tbody>
         ${filas.map(fl=>`<tr>
           <td style="padding:5px 10px;font-size:12px;font-weight:600;border-bottom:0.5px solid var(--border);border-right:1px solid var(--border);white-space:nowrap;position:sticky;left:0;background:var(--bg1)"><span class="stag ${flotaC[fl.flota]}">${fl.flota}</span></td>
-          ${fl.porSemana.map(v=>`<td style="padding:5px 6px;font-size:12px;text-align:center;border-bottom:0.5px solid var(--border);border-left:1px solid var(--border);font-weight:700;color:#0369A1">${fmtCelda(v.chatsIniciados)}</td><td style="padding:5px 6px;font-size:12px;text-align:center;border-bottom:0.5px solid var(--border);font-weight:700;color:#B45309">${fmtCelda(v.enProceso)}</td><td style="padding:5px 6px;font-size:12px;text-align:center;border-bottom:0.5px solid var(--border);font-weight:700;color:#7C3AED">${v.bolsa}</td><td style="padding:5px 6px;font-size:12px;text-align:center;border-bottom:0.5px solid var(--border);font-weight:700;color:#166534">${v.convertidos}</td>`).join('')}
+          ${fl.porSemana.map((v,i)=>`<td style="padding:5px 6px;font-size:12px;text-align:center;border-bottom:0.5px solid var(--border);border-left:1px solid var(--border);font-weight:700;color:#0369A1">${fmtCelda(v.chatsIniciados)}</td><td style="padding:5px 6px;font-size:12px;text-align:center;border-bottom:0.5px solid var(--border);font-weight:700;color:#B45309">${fmtCelda(v.enProceso)}</td><td style="padding:5px 6px;font-size:12px;text-align:center;border-bottom:0.5px solid var(--border);font-weight:700;color:#7C3AED">${v.bolsa}</td><td style="padding:5px 6px;font-size:12px;text-align:center;border-bottom:0.5px solid var(--border);font-weight:700;color:#166534;cursor:pointer;text-decoration:underline dotted" title="Clic para ver quiénes son" onclick="verConvertidosSemana('${semanas[i]}','${fl.flota}')">${v.convertidos}</td>`).join('')}
         </tr>`).join('')}
         <tr style="background:var(--bg3)">
           <td style="padding:5px 10px;font-size:12px;font-weight:700;border-right:1px solid var(--border);position:sticky;left:0;background:var(--bg3)">Total</td>
-          ${semanas.map(s=>`<td style="padding:5px 6px;font-size:12px;text-align:center;border-left:1px solid var(--border);font-weight:800;color:#0369A1">${totales[s].chats}</td><td style="padding:5px 6px;font-size:12px;text-align:center;font-weight:800;color:#B45309">${totales[s].proc}</td><td style="padding:5px 6px;font-size:12px;text-align:center;font-weight:800;color:#7C3AED">${totales[s].bolsa}</td><td style="padding:5px 6px;font-size:12px;text-align:center;font-weight:800;color:#166534">${totales[s].conv}</td>`).join('')}
+          ${semanas.map(s=>`<td style="padding:5px 6px;font-size:12px;text-align:center;border-left:1px solid var(--border);font-weight:800;color:#0369A1">${totales[s].chats}</td><td style="padding:5px 6px;font-size:12px;text-align:center;font-weight:800;color:#B45309">${totales[s].proc}</td><td style="padding:5px 6px;font-size:12px;text-align:center;font-weight:800;color:#7C3AED">${totales[s].bolsa}</td><td style="padding:5px 6px;font-size:12px;text-align:center;font-weight:800;color:#166534;cursor:pointer;text-decoration:underline dotted" title="Clic para ver quiénes son" onclick="verConvertidosSemana('${s}',null)">${totales[s].conv}</td>`).join('')}
         </tr>
       </tbody>
     </table></div>
