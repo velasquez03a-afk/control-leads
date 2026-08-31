@@ -671,6 +671,16 @@ function finDeSemana(semKey){
   const dom=new Date(lun); dom.setDate(lun.getDate()+6);
   return dom.getFullYear()+'-'+String(dom.getMonth()+1).padStart(2,'0')+'-'+String(dom.getDate()).padStart(2,'0');
 }
+// Igual que finDeSemana, pero devuelve el LUNES (inicio) de esa semana en vez del domingo.
+function inicioDeSemana(semKey){
+  if(!semKey||!semKey.includes('-W'))return hoy();
+  const [y,w]=semKey.split('-W');
+  const año=parseInt(y); const nSem=parseInt(w);
+  const ene1=new Date(año,0,1);
+  const diasHastaLun=(nSem-1)*7-(ene1.getDay()||7)+1;
+  const lun=new Date(año,0,1+diasHastaLun);
+  return lun.getFullYear()+'-'+String(lun.getMonth()+1).padStart(2,'0')+'-'+String(lun.getDate()).padStart(2,'0');
+}
 
 // Genera las últimas N claves de semana (más reciente primero), retrocediendo de 7 en 7 días desde hoy
 function ultimasSemanas(n){
@@ -697,19 +707,19 @@ function estadoAlaFecha(c,fechaLimite){
   return {etapa:ultimo.etapa,dropout};
 }
 
-// "Bolsa": conductores actualmente en Antecedentes, Entrevista Psi. o Capacitación, sin contar
-// afiliados ni bajas. Se atribuyen a la semana de su ÚLTIMO MOVIMIENTO (no a un snapshot repetido
-// semana tras semana) — así un conductor que sigue atascado en la misma etapa solo cuenta UNA VEZ,
-// en la semana en que realmente se movió por última vez, y no infla las semanas siguientes.
-// (Este criterio es el que usa el reporte de Marketing "Bolsa semanal por flota".)
+// "Bolsa": TODOS los conductores que PASARON por Antecedentes, Entrevista Psi. o Capacitación
+// EN ALGÚN MOMENTO de esa semana — se revisa su historial, no solo su estado actual. Así, si
+// alguien entra a Bolsa y esa misma semana avanza a Afiliado (o se da de baja), igual cuenta en
+// Bolsa esa semana: por eso "Convertidos" nunca puede ser mayor que "Bolsa" en la misma semana,
+// ya que para convertirse primero tuvo que pasar por Bolsa.
 const ETAPAS_BOLSA=[4,5,6];
 function bolsaSemana(semKey,flota){
+  const desde=inicioDeSemana(semKey), hasta=finDeSemana(semKey);
   let n=0;
   ST.conductores.forEach(c=>{
     if(flota&&c.flota!==flota) return;
-    if(c.dropout) return;
-    if(!ETAPAS_BOLSA.includes(c.etapa)) return;
-    if(semDia(ultimaFecha(c))===semKey) n++;
+    const pasoPorBolsaEsaSemana=(c.historial||[]).some(h=>h.fecha&&h.fecha>=desde&&h.fecha<=hasta&&ETAPAS_BOLSA.includes(h.etapa));
+    if(pasoPorBolsaEsaSemana) n++;
   });
   return n;
 }
@@ -804,11 +814,11 @@ function capturarBolsaSemanasVencidas(){
 }
 
 // ── CORREGIR CRITERIO DE BOLSA/EN PROCESO EN SEMANAS YA CONGELADAS ─────────
-// El cálculo original de "Bolsa" y "En proceso" contaba a un conductor en CADA semana que seguía
-// atascado en la misma etapa, en vez de solo en la semana de su último movimiento — esto inflaba
-// los totales. Esto fue un ERROR de cálculo, no un cambio de criterio de negocio, así que las
-// semanas que el sistema ya había congelado con el cálculo viejo se recalculan UNA SOLA VEZ con
-// el criterio correcto (se marcan con "criterioV2" para no volver a tocarlas después).
+// El cálculo de "Bolsa" cambió otra vez: ahora cuenta a TODOS los que pasaron por Bolsa esa
+// semana según su historial (aunque después hayan avanzado a Afiliado o se hayan dado de baja
+// esa misma semana), para que "Convertidos" nunca sea mayor que "Bolsa". Esto es una CORRECCIÓN
+// de cálculo, no un cambio de criterio de negocio, así que las semanas que el sistema ya había
+// congelado se recalculan UNA SOLA VEZ MÁS con el criterio correcto (se marcan con "criterioV3").
 // Las semanas cargadas MANUALMENTE (histórico previo al sistema) nunca se tocan aquí.
 function corregirCriterioBolsaAntiguo(){
   ST.bolsaHistorial=ST.bolsaHistorial||{};
@@ -816,7 +826,7 @@ function corregirCriterioBolsaAntiguo(){
   Object.keys(ST.bolsaHistorial).forEach(semKey=>{
     if(semKey.startsWith('_')) return; // marcas de control (ej. "_limpiezaInicialHecha"), no son semanas
     const entry=ST.bolsaHistorial[semKey];
-    if(!entry||entry.manual||entry.criterioV2) return; // manual o ya corregida: no se toca
+    if(!entry||entry.manual||entry.criterioV3) return; // manual o ya corregida: no se toca
     entry.porFlota=entry.porFlota||{};
     FLOTAS.forEach(f=>{
       entry.porFlota[f]=entry.porFlota[f]||{};
@@ -826,6 +836,7 @@ function corregirCriterioBolsaAntiguo(){
       if(entry.porFlota[f].convertidos===undefined) entry.porFlota[f].convertidos=convertidosSemana(semKey,f);
     });
     entry.criterioV2=true;
+    entry.criterioV3=true;
     huboCambios=true;
   });
   return huboCambios;
