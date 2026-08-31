@@ -820,14 +820,14 @@ function capturarBolsaSemanasVencidas(){
 // antes solo se completaba si estaba vacío — nunca se corregía si ya tenía un valor desde una
 // versión anterior. Ahora también se recalcula siempre. Esto es una CORRECCIÓN de cálculo, no un
 // cambio de criterio de negocio, así que las semanas ya congeladas se recalculan UNA VEZ MÁS
-// (se marcan con "criterioV4"). Las semanas cargadas MANUALMENTE nunca se tocan aquí.
+// (se marcan con "criterioV5"). Las semanas cargadas MANUALMENTE nunca se tocan aquí.
 function corregirCriterioBolsaAntiguo(){
   ST.bolsaHistorial=ST.bolsaHistorial||{};
   let huboCambios=false;
   Object.keys(ST.bolsaHistorial).forEach(semKey=>{
     if(semKey.startsWith('_')) return; // marcas de control (ej. "_limpiezaInicialHecha"), no son semanas
     const entry=ST.bolsaHistorial[semKey];
-    if(!entry||entry.manual||entry.criterioV4) return; // manual o ya corregida: no se toca
+    if(!entry||entry.manual||entry.criterioV5) return; // manual o ya corregida: no se toca
     entry.porFlota=entry.porFlota||{};
     FLOTAS.forEach(f=>{
       entry.porFlota[f]=entry.porFlota[f]||{};
@@ -839,6 +839,7 @@ function corregirCriterioBolsaAntiguo(){
     entry.criterioV2=true;
     entry.criterioV3=true;
     entry.criterioV4=true;
+    entry.criterioV5=true;
     huboCambios=true;
   });
   return huboCambios;
