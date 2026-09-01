@@ -240,7 +240,7 @@ const DEFAULT_USERS=[
   {id:'u3',nombre:'Jennifer',pin:'1234',role:'agente'},
   {id:'u4',nombre:'Rommy',pin:'1234',role:'agente'},
   {id:'u5',nombre:'Denisse',pin:'1234',role:'agente'},
-  {id:'u6',nombre:'Melisa',pin:'1234',role:'agente'},
+  {id:'u6',nombre:'Melissa',pin:'1234',role:'agente'},
   {id:'mkt',nombre:'Marketing',pin:'mkt2024',role:'marketing'},
   {id:'admin',nombre:'Supervisor',pin:'admin123',role:'admin'},
   {id:'rep',nombre:'Reportes',pin:'rep2024',role:'reportes'},
@@ -890,12 +890,20 @@ function crearAgenteDenisse(){
   return true;
 }
 
-// ── NUEVA AGENTE: Melisa (afiliadora) ──────────────────────
-// Mismo caso que Denisse: se agrega a la base YA EXISTENTE una sola vez, justo debajo de Denisse.
+// ── NUEVA AGENTE: Melissa (afiliadora) ──────────────────────
+// Si ya existe "Melisa" (mal escrito, de una versión anterior), se le CORRIGE el nombre a
+// "Melissa" en vez de crear una nueva — así no queda duplicada. Si no existe ninguna de las dos,
+// se crea de cero, justo debajo de Denisse.
 function crearAgenteMelisa(){
   ST.users=ST.users||[];
-  if(ST.users.some(u=>u.nombre.trim().toLowerCase()==='melisa')) return false; // ya existe: no duplicar
-  const nueva={id:'u_melisa',nombre:'Melisa',pin:'1234',role:'agente'};
+  const yaCorregida=ST.users.some(u=>u.nombre.trim().toLowerCase()==='melissa');
+  if(yaCorregida) return false; // ya existe con el nombre correcto: no hacer nada más
+  const conNombreViejo=ST.users.find(u=>u.nombre.trim().toLowerCase()==='melisa');
+  if(conNombreViejo){
+    conNombreViejo.nombre='Melissa'; // corrige el nombre existente, no crea una nueva
+    return true;
+  }
+  const nueva={id:'u_melisa',nombre:'Melissa',pin:'1234',role:'agente'};
   const idxDenisse=ST.users.findIndex(u=>u.nombre.trim().toLowerCase()==='denisse');
   if(idxDenisse>=0) ST.users.splice(idxDenisse+1,0,nueva); // justo debajo de Denisse
   else ST.users.push(nueva); // si no encuentra a Denisse, se agrega al final por seguridad
@@ -943,6 +951,7 @@ function render(){
     <div class="tabs">${tabs.map(([id,ic,lbl])=>`<button class="tab ${ST.tab===id?'on':''}" onclick="setTab('${id}')"><i class="ti ${ic}"></i>${lbl}</button>`).join('')}</div>
     <div id="sec"></div>
   </div>`;
+  syncBadge(); // el HTML de arriba trae "Conectando..." como texto de relleno; esto lo actualiza al estado real de inmediato
   renderSec();
 }
 function renderSec(){
