@@ -300,6 +300,15 @@ async function fbUrl(path){
   return FB_URL+path+'.json'+(token?('?auth='+token):'');
 }
 
+// fetch con tiempo límite: si Firebase no responde en 12 segundos (conexión lenta o colgada), se
+// cancela la petición y se trata como un error normal — así ninguna pantalla se queda esperando
+// para siempre (ej. el indicador pegado en "Guardando..." si la red se pone inestable).
+function fetchConLimite(url,options,timeoutMs=12000){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),timeoutMs);
+  return fetch(url,{...(options||{}),signal:controller.signal}).finally(()=>clearTimeout(timer));
+}
+
 // ── BACKUP AUTOMÁTICO A GOOGLE SHEETS ──
 // URL del Google Apps Script desplegado (recibe una copia de los datos en cada guardado)
 const BACKUP_URL='https://script.google.com/macros/s/AKfycbz0-5t0y-0BupMC4mIuUAYga2KqOUUrkVoI5mzhtEfFACx8e4wqODolF7pAaOJq6UvSyA/exec';
@@ -395,7 +404,7 @@ async function saveBin(){
     // 1) Traer lo más reciente del servidor
     let remoteConductores=[];
     try{
-      const r0=await fetch(await fbUrl(FB_PATH),{headers:{'Accept':'application/json'}});
+      const r0=await fetchConLimite(await fbUrl(FB_PATH),{headers:{'Accept':'application/json'}},6000);
       if(r0.ok){
         const remote=await r0.json();
         remoteConductores=(remote&&remote.conductores)||[];
@@ -427,7 +436,7 @@ async function saveBin(){
 
     // 3) Guardar el resultado fusionado
     const data={users:ST.users,conductores:ST.conductores,metas:ST.metas||{},inversiones:ST.inversiones||{},bolsaHistorial:ST.bolsaHistorial||{}};
-    const r=await fetch(await fbUrl(FB_PATH),{
+    const r=await fetchConLimite(await fbUrl(FB_PATH),{
       method:'PUT',
       headers:{'Content-Type':'application/json','Accept':'application/json'},
       body:JSON.stringify(data)
@@ -445,7 +454,7 @@ async function saveBin(){
 // Cargar desde Firebase
 async function loadBin(){
   try{
-    const r=await fetch(await fbUrl(FB_PATH),{method:'GET',headers:{'Accept':'application/json'}});
+    const r=await fetchConLimite(await fbUrl(FB_PATH),{method:'GET',headers:{'Accept':'application/json'}});
     if(!r.ok)throw new Error('HTTP '+r.status);
     const d=await r.json();
     if(d&&d.users&&d.users.length){
@@ -494,7 +503,7 @@ async function initBin(){
   render();
   // Luego sincroniza con Firebase en background
   try{
-    const r=await fetch(await fbUrl(FB_PATH),{headers:{'Accept':'application/json'}});
+    const r=await fetchConLimite(await fbUrl(FB_PATH),{headers:{'Accept':'application/json'}});
     if(r.ok){
       const d=await r.json();
       if(d&&d.conductores!==undefined){
@@ -538,7 +547,7 @@ async function initBin(){
     setTimeout(async()=>{
       if(!ST.syncErr)return; // ya se resolvió solo (ej. por el ciclo normal)
       try{
-        const r2=await fetch(await fbUrl(FB_PATH),{headers:{'Accept':'application/json'}});
+        const r2=await fetchConLimite(await fbUrl(FB_PATH),{headers:{'Accept':'application/json'}});
         if(r2.ok){
           const d2=await r2.json();
           if(d2&&d2.conductores!==undefined){
@@ -560,7 +569,7 @@ async function initBin(){
   setInterval(async()=>{
     if(!ST.session||ST.syncing)return;
     try{
-      const r=await fetch(await fbUrl(FB_PATH),{headers:{'Accept':'application/json'}});
+      const r=await fetchConLimite(await fbUrl(FB_PATH),{headers:{'Accept':'application/json'}});
       if(!r.ok)return;
       const d=await r.json();
       if(d&&d.conductores){
