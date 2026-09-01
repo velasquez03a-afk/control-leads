@@ -284,11 +284,15 @@ let _signInPromise=null;
 async function ensureAuth(){
   try{
     if(typeof firebase==='undefined'||!firebase.auth) return null;
+    const conLimite=(promesa,ms)=>Promise.race([
+      promesa,
+      new Promise((_,reject)=>setTimeout(()=>reject(new Error('Tiempo de autenticación agotado')),ms))
+    ]);
     if(!firebase.auth().currentUser){
       if(!_signInPromise) _signInPromise=firebase.auth().signInAnonymously();
-      await _signInPromise;
+      await conLimite(_signInPromise,10000);
     }
-    return await firebase.auth().currentUser.getIdToken();
+    return await conLimite(firebase.auth().currentUser.getIdToken(),10000);
   }catch(e){
     _signInPromise=null; // si falló el login, permitir reintentar la próxima vez
     return null; // sin token: las llamadas caerán a localStorage si las reglas lo requieren
@@ -303,7 +307,7 @@ async function fbUrl(path){
 // fetch con tiempo límite: si Firebase no responde en 12 segundos (conexión lenta o colgada), se
 // cancela la petición y se trata como un error normal — así ninguna pantalla se queda esperando
 // para siempre (ej. el indicador pegado en "Guardando..." si la red se pone inestable).
-function fetchConLimite(url,options,timeoutMs=12000){
+function fetchConLimite(url,options,timeoutMs=25000){
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),timeoutMs);
   return fetch(url,{...(options||{}),signal:controller.signal}).finally(()=>clearTimeout(timer));
@@ -352,12 +356,20 @@ async function backupToSheetsManual(){
   }
 }
 
+// Antes esto escribía a localStorage de forma SÍNCRONA cada vez que se llamaba — con muchos
+// conductores, el JSON.stringify de todo el arreglo se vuelve pesado y bloqueaba la pantalla justo
+// en el momento del clic (ej. "Avanzar"). Ahora se difiere un poco (300ms) y se agrupan varias
+// llamadas seguidas en una sola escritura real, sacando ese trabajo del camino inmediato del clic.
+let _saveLocalTimer=null;
 function saveLocal(){
-  try{
-    localStorage.setItem(LS_KEY,JSON.stringify({
-      users:ST.users,conductores:ST.conductores,metas:ST.metas,inversiones:ST.inversiones,bolsaHistorial:ST.bolsaHistorial,savedAt:new Date().toISOString()
-    }));
-  }catch(e){}
+  if(_saveLocalTimer) clearTimeout(_saveLocalTimer);
+  _saveLocalTimer=setTimeout(()=>{
+    try{
+      localStorage.setItem(LS_KEY,JSON.stringify({
+        users:ST.users,conductores:ST.conductores,metas:ST.metas,inversiones:ST.inversiones,bolsaHistorial:ST.bolsaHistorial,savedAt:new Date().toISOString()
+      }));
+    }catch(e){}
+  },300);
 }
 
 function loadLocal(){
@@ -394,7 +406,11 @@ function hideLoad(){
 function _marcarSucio(id){
   if(!ST._dirty) ST._dirty=new Set();
   ST._dirty.add(id);
-  _dupIndex=null; // datos modificados: el índice de duplicados debe recalcularse
+  // OJO: el índice de duplicados (_dupIndex) YA NO se invalida aquí. _marcarSucio() se llama en
+  // casi cualquier edición (avanzar de etapa, dar de baja, código de unidad, etc.), pero solo el
+  // CELULAR puede crear o resolver un duplicado — invalidar el índice en cada edición forzaba
+  // reconstruirlo entero (recorrer TODOS los conductores) por cada clic, aunque el celular no
+  // haya cambiado. Ahora _dupIndex=null solo se pone donde el celular realmente cambia.
 }
 
 async function saveBin(){
@@ -404,7 +420,7 @@ async function saveBin(){
     // 1) Traer lo más reciente del servidor
     let remoteConductores=[];
     try{
-      const r0=await fetchConLimite(await fbUrl(FB_PATH),{headers:{'Accept':'application/json'}},6000);
+      const r0=await fetchConLimite(await fbUrl(FB_PATH),{headers:{'Accept':'application/json'}},10000);
       if(r0.ok){
         const remote=await r0.json();
         remoteConductores=(remote&&remote.conductores)||[];
@@ -3097,6 +3113,7 @@ function editarCelular(id, val){
     return;
   }
   c.celular=celValido;
+  _dupIndex=null; // el celular cambió: el índice de duplicados debe recalcularse
   const dup=norm.length>=7?ST.conductores.find(x=>x.id!==id&&normCel(x.celular)===norm):null;
   _marcarSucio(id);
   saveBin();
@@ -4229,6 +4246,7 @@ async function guardarEdicionAdmin(id){
   // Apply changes
   c.nombre=n;
   c.celular=celValido;
+  _dupIndex=null; // el celular pudo haber cambiado: el índice de duplicados debe recalcularse
   c.fechaContacto=fecha||c.fechaContacto;
   c.flota=flota;
   c.canal=canal;
