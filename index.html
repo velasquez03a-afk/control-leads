@@ -240,6 +240,7 @@ const DEFAULT_USERS=[
   {id:'u3',nombre:'Jennifer',pin:'1234',role:'agente'},
   {id:'u4',nombre:'Rommy',pin:'1234',role:'agente'},
   {id:'u5',nombre:'Denisse',pin:'1234',role:'agente'},
+  {id:'u6',nombre:'Melisa',pin:'1234',role:'agente'},
   {id:'mkt',nombre:'Marketing',pin:'mkt2024',role:'marketing'},
   {id:'admin',nombre:'Supervisor',pin:'admin123',role:'admin'},
   {id:'rep',nombre:'Reportes',pin:'rep2024',role:'reportes'},
@@ -519,13 +520,14 @@ async function initBin(){
   // Todo esto va envuelto en try/catch: si alguna migración falla con datos reales que no
   // esperábamos, NO debe dejar la app trabada en "Conectando..." — mejor seguir sin esa
   // migración puntual que bloquear el uso de toda la app.
-  let _cambiosInactivos=0,_huboLimpieza=false,_huboNuevasBolsa=false,_huboCompletado=false,_huboDenisse=false;
+  let _cambiosInactivos=0,_huboLimpieza=false,_huboNuevasBolsa=false,_huboCompletado=false,_huboDenisse=false,_huboMelisa=false;
   try{ _cambiosInactivos=_autoMarcarInactivos(); }catch(e){ console.error('Error en _autoMarcarInactivos:',e); }
   try{ _huboLimpieza=limpiarBolsaHistorialAntiguo(); }catch(e){ console.error('Error en limpiarBolsaHistorialAntiguo:',e); }
   try{ _huboNuevasBolsa=capturarBolsaSemanasVencidas(); }catch(e){ console.error('Error en capturarBolsaSemanasVencidas:',e); }
   try{ _huboCompletado=corregirCriterioBolsaAntiguo(); }catch(e){ console.error('Error en corregirCriterioBolsaAntiguo:',e); }
   try{ _huboDenisse=crearAgenteDenisse(); }catch(e){ console.error('Error en crearAgenteDenisse:',e); }
-  if(_cambiosInactivos>0||_huboLimpieza||_huboNuevasBolsa||_huboCompletado||_huboDenisse){
+  try{ _huboMelisa=crearAgenteMelisa(); }catch(e){ console.error('Error en crearAgenteMelisa:',e); }
+  if(_cambiosInactivos>0||_huboLimpieza||_huboNuevasBolsa||_huboCompletado||_huboDenisse||_huboMelisa){
     try{ await saveBin(); }catch(e){ console.error('Error guardando tras migraciones:',e); }
   }
   syncBadge();
@@ -885,6 +887,18 @@ function crearAgenteDenisse(){
   const idxRommy=ST.users.findIndex(u=>u.nombre.trim().toLowerCase()==='rommy');
   if(idxRommy>=0) ST.users.splice(idxRommy+1,0,nueva); // justo debajo de Rommy
   else ST.users.push(nueva); // si no encuentra a Rommy, se agrega al final por seguridad
+  return true;
+}
+
+// ── NUEVA AGENTE: Melisa (afiliadora) ──────────────────────
+// Mismo caso que Denisse: se agrega a la base YA EXISTENTE una sola vez, justo debajo de Denisse.
+function crearAgenteMelisa(){
+  ST.users=ST.users||[];
+  if(ST.users.some(u=>u.nombre.trim().toLowerCase()==='melisa')) return false; // ya existe: no duplicar
+  const nueva={id:'u_melisa',nombre:'Melisa',pin:'1234',role:'agente'};
+  const idxDenisse=ST.users.findIndex(u=>u.nombre.trim().toLowerCase()==='denisse');
+  if(idxDenisse>=0) ST.users.splice(idxDenisse+1,0,nueva); // justo debajo de Denisse
+  else ST.users.push(nueva); // si no encuentra a Denisse, se agrega al final por seguridad
   return true;
 }
 
