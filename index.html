@@ -2635,7 +2635,13 @@ function verConvertidosSemana(semKey,flota){
 async function descargarBolsaSemanal(){
   gMsg('Preparando descarga...');
   await cargarXLSX();
-  const semanas=ultimasSemanas(4).reverse();
+  const todasLasSemanas=ultimasSemanas(26).reverse();
+  const desdeSel=document.getElementById('bolsa-desde')?.value||todasLasSemanas[Math.max(0,todasLasSemanas.length-4)];
+  const hastaSel=document.getElementById('bolsa-hasta')?.value||todasLasSemanas[todasLasSemanas.length-1];
+  let idxDesde=todasLasSemanas.indexOf(desdeSel), idxHasta=todasLasSemanas.indexOf(hastaSel);
+  if(idxDesde<0) idxDesde=Math.max(0,todasLasSemanas.length-4);
+  if(idxHasta<0) idxHasta=todasLasSemanas.length-1;
+  const semanas=todasLasSemanas.slice(Math.min(idxDesde,idxHasta),Math.max(idxDesde,idxHasta)+1);
   const valor=(semKey,flota)=>{
     const cong=ST.bolsaHistorial&&ST.bolsaHistorial[semKey];
     if(cong&&cong.porFlota&&cong.porFlota[flota]) return cong.porFlota[flota];
@@ -2677,8 +2683,13 @@ async function descargarBolsaSemanal(){
 }
 
 function renderReporteBolsa(){
-  const nSemanas=4; // vista fija en las últimas 4 semanas
-  const semanas=ultimasSemanas(nSemanas).reverse(); // de más antigua a más reciente, para leer de izq. a der.
+  const todasLasSemanas=ultimasSemanas(26).reverse(); // últimas 26 semanas disponibles para elegir, de más antigua a más reciente
+  const desdeSel=document.getElementById('bolsa-desde')?.value||todasLasSemanas[Math.max(0,todasLasSemanas.length-4)];
+  const hastaSel=document.getElementById('bolsa-hasta')?.value||todasLasSemanas[todasLasSemanas.length-1];
+  let idxDesde=todasLasSemanas.indexOf(desdeSel), idxHasta=todasLasSemanas.indexOf(hastaSel);
+  if(idxDesde<0) idxDesde=Math.max(0,todasLasSemanas.length-4);
+  if(idxHasta<0) idxHasta=todasLasSemanas.length-1;
+  const semanas=todasLasSemanas.slice(Math.min(idxDesde,idxHasta),Math.max(idxDesde,idxHasta)+1);
 
   const totales={};
   semanas.forEach(s=>{totales[s]={chats:0,proc:0,bolsa:0,conv:0};});
@@ -2714,9 +2725,23 @@ function renderReporteBolsa(){
     <div style="padding:10px 14px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
       <div>
         <div style="font-size:13px;font-weight:700"><i class="ti ti-briefcase" style="color:#7C3AED;margin-right:4px"></i>Bolsa semanal por flota</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:2px">Chats iniciados: primer contacto esa semana · En proceso: Contacto/Info/Docs/Formulario · Bolsa: Antecedentes/Psi./Capacitación · Convertidos: se afiliaron esa semana. Cada semana que ya cerró queda guardada tal cual (cierre los domingos). Vista de las últimas 4 semanas.</div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px">Chats iniciados: primer contacto esa semana · En proceso: Contacto/Info/Docs/Formulario · Bolsa: Antecedentes/Psi./Capacitación · Convertidos: se afiliaron esa semana. Cada semana que ya cerró queda guardada tal cual (cierre los domingos).</div>
       </div>
-      <button class="btn btn-sm" style="background:#F0FDF4;border-color:#BBF7D0;color:#166534" onclick="descargarBolsaSemanal()"><i class="ti ti-download"></i> Descargar</button>
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div class="fg" style="margin:0;max-width:170px">
+          <label style="font-size:10px">Desde</label>
+          <select id="bolsa-desde" onchange="renderSec()">
+            ${todasLasSemanas.map((s,i)=>`<option value="${s}" ${i===idxDesde?'selected':''}>${semRng(s)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="fg" style="margin:0;max-width:170px">
+          <label style="font-size:10px">Hasta</label>
+          <select id="bolsa-hasta" onchange="renderSec()">
+            ${todasLasSemanas.map((s,i)=>`<option value="${s}" ${i===idxHasta?'selected':''}>${semRng(s)}</option>`).join('')}
+          </select>
+        </div>
+        <button class="btn btn-sm" style="background:#F0FDF4;border-color:#BBF7D0;color:#166534" onclick="descargarBolsaSemanal()"><i class="ti ti-download"></i> Descargar</button>
+      </div>
     </div>
     <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse">
       <thead>
