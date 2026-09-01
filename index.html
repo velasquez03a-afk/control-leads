@@ -989,6 +989,10 @@ function renderSec(){
     if(!document.getElementById('filtros-lista-wrap')){
       el.innerHTML=renderConductores(isA,isMkt);
     }
+    // El kanban + tarjetas resumen SÍ deben reconstruirse en cada acción (avanzar, dar de baja,
+    // etc.) — antes se quedaban "congelados" con los datos del primer render de la pestaña.
+    const kw=document.getElementById('kanban-resumen-wrap');
+    if(kw) kw.innerHTML=renderKanbanYResumen(isA,isMkt);
     // Always init/refresh the filter div and tbody
     initFiltrosLista();
     filtrarTablaLista();
@@ -1228,25 +1232,16 @@ function exportMiResumen(){
 let _tablaLimite=60;
 function mostrarMasTabla(){ _tablaLimite+=60; filtrarTablaLista(); }
 
-function renderConductores(isA,isMkt){
+// Tarjetas resumen (Total/Activos/Afiliados/No continuaron) + kanban ("Estado del proceso").
+// Se separó de renderConductores() porque esta parte SÍ debe reconstruirse en CADA acción (avanzar,
+// dar de baja, etc.) — antes se quedaba "congelada" con los datos del primer render de la pestaña,
+// porque solo la tabla de abajo ("Lista completa") se refrescaba en cada cambio.
+function renderKanbanYResumen(isA,isMkt){
   const visibles=(isA||isMkt)?ST.conductores:ST.conductores.filter(c=>c.agenteId===ST.session);
-  const fF=ST.filtros.flota||'';
-  const fE=ST.filtros.etapa||'';
-  const fB=(ST.filtros.busca||'').toLowerCase();
-  const fC=(ST.filtros.celular||'').replace(/\D/g,'');
-  let lista=visibles.filter(c=>{
-    if(fF&&c.flota!==fF)return false;
-    if(fE==='activos'&&(c.dropout||c.etapa===7))return false;
-    if(fE==='afiliados'&&c.etapa!==7)return false;
-    if(fE==='dropout'&&!c.dropout)return false;
-    if(fB&&!c.nombre.toLowerCase().includes(fB))return false;
-    return true;
-  });
   const activos=visibles.filter(c=>!c.dropout&&c.etapa<7);
   const afiliados=visibles.filter(c=>c.etapa===7);
   const dropouts=visibles.filter(c=>c.dropout);
-  return`<div>
-    <div class="g4" style="margin-bottom:1rem">
+  return`<div class="g4" style="margin-bottom:1rem">
       <div class="mcard"><div class="mval">${visibles.length}</div><div class="mlbl">Total conductores</div></div>
       <div class="mcard"><div class="mval" style="color:var(--blue)">${activos.length}</div><div class="mlbl">En proceso activo</div></div>
       <div class="mcard"><div class="mval" style="color:var(--green)">${afiliados.length}</div><div class="mlbl">Afiliados ✓</div></div>
@@ -1289,7 +1284,25 @@ function renderConductores(isA,isMkt){
           </div>
         </div>
       </div>
-    </div>`:''}
+    </div>`:''}`;
+}
+
+function renderConductores(isA,isMkt){
+  const visibles=(isA||isMkt)?ST.conductores:ST.conductores.filter(c=>c.agenteId===ST.session);
+  const fF=ST.filtros.flota||'';
+  const fE=ST.filtros.etapa||'';
+  const fB=(ST.filtros.busca||'').toLowerCase();
+  const fC=(ST.filtros.celular||'').replace(/\D/g,'');
+  let lista=visibles.filter(c=>{
+    if(fF&&c.flota!==fF)return false;
+    if(fE==='activos'&&(c.dropout||c.etapa===7))return false;
+    if(fE==='afiliados'&&c.etapa!==7)return false;
+    if(fE==='dropout'&&!c.dropout)return false;
+    if(fB&&!c.nombre.toLowerCase().includes(fB))return false;
+    return true;
+  });
+  return`<div>
+    <div id="kanban-resumen-wrap">${renderKanbanYResumen(isA,isMkt)}</div>
     <div class="card">
       <div class="section-hdr">
         <div class="card-title" style="margin:0"><i class="ti ti-list" style="color:var(--blue)"></i> Lista completa</div>
