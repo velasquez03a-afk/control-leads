@@ -4562,8 +4562,12 @@ function _procesarReporteChat(matrix){
     const flota=_extraerFlotaDeEtiquetas(etiquetas);
     const fecha=_parseFechaReporte(fechaRaw);
 
+    // Cuando varios agentes atendieron el mismo chat (ej. "sgonzales, melissaserquen"), se toma
+    // SOLO al ÚLTIMO de la lista — es quien atendió más recientemente, así que el conductor le
+    // corresponde a él/ella. Si solo hay un nombre, se usa ese mismo.
     const tokens=agentesRaw?agentesRaw.split(',').map(s=>s.trim()).filter(Boolean):[''];
-    tokens.forEach(tok=>{
+    const tok=tokens.length?tokens[tokens.length-1]:'';
+    {
       const agenteUser=_resolverAgentePorCodigo(tok);
       const agenteId=agenteUser?agenteUser.id:null;
       const combo=cel+'|'+(agenteId||'');
@@ -4571,7 +4575,7 @@ function _procesarReporteChat(matrix){
       if(yaExiste){
         // Esa misma afiliadora ya tiene este celular: no se crea ni se modifica nada.
         _cargaPreview.push({nombre,cel,flota,canal:'Meta',agenteId,agenteCodigoOriginal:tok||'',fecha,isDup:true,celInvalido,_row:r+1});
-        return;
+        continue;
       }
       if(cel.length>=7) combosVistos.add(combo);
       _cargaPreview.push({
@@ -4580,7 +4584,7 @@ function _procesarReporteChat(matrix){
         agenteCodigoOriginal:tok||'',
         fecha,isDup:false,celInvalido,_row:r+1
       });
-    });
+    }
   }
 
   _renderCargaPreview(filasVacias);
