@@ -3266,7 +3266,10 @@ function filtrarTablaLista(){
   if(fE==='activos') lista=lista.filter(c=>!c.dropout&&c.etapa<7);
   else if(fE==='afiliados') lista=lista.filter(c=>c.etapa===7);
   else if(fE==='dropout') lista=lista.filter(c=>c.dropout);
-  if(fB) lista=lista.filter(c=>(c.nombre||'').toLowerCase().includes(fB)||normCel(c.celular).includes(fB.replace(/\D/g,'')));
+  if(fB){
+    const fBDigitos=fB.replace(/\D/g,'');
+    lista=lista.filter(c=>(c.nombre||'').toLowerCase().includes(fB)||(fBDigitos&&normCel(c.celular).includes(fBDigitos)));
+  }
   if(fC) lista=lista.filter(c=>normCel(c.celular).includes(fC));
   const cnt=document.getElementById('lista-count');
   if(cnt) cnt.textContent=(lista.length>_tablaLimite?_tablaLimite+' de ':'')+lista.length+' resultado(s)';
