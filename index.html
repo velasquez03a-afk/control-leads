@@ -2029,7 +2029,11 @@ function statsFilaHibrida(csContacto,csMovimiento,flota,canal,fechaLimite){
     chats:bc.chats, nr:bc.califica, nd:bc.chats-bc.califica, proc:bc.enProceso,
     pre:bc.bolsa, ant:bc.anteced, psi:bc.evPsic, cap:bc.capacit,
     desaprobK:bm.desaprobK, desaprobM:bm.desaprobM, desaprobC:bm.desaprobC,
-    afil:bm.afiliado, noAfil:bc.chats-bm.afiliado,
+    // "Afiliado" y "No afiliados" ahora vienen del MISMO grupo (último movimiento esa semana) —
+    // antes "No afiliados" se comparaba contra "Chats iniciados" (grupo distinto), lo que podía dar
+    // NEGATIVO si alguien de OTRA semana se afiliaba esta semana (más afiliados que chats de esta
+    // semana). Ahora ambos salen del mismo bm, así siempre tiene sentido.
+    afil:bm.afiliado, noAfil:bm.noCalif,
   };
 }
 
