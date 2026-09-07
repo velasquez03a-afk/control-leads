@@ -2747,12 +2747,16 @@ async function descargarBolsaSemanal(){
   const semanas=todasLasSemanas.slice(Math.min(idxDesde,idxHasta),Math.max(idxDesde,idxHasta)+1);
   const valor=(semKey,flota)=>{
     const cong=ST.bolsaHistorial&&ST.bolsaHistorial[semKey];
-    if(cong&&cong.porFlota&&cong.porFlota[flota]) return cong.porFlota[flota];
+    // "Convertidos" SIEMPRE se recalcula en vivo, incluso en semanas ya cerradas — así, si alguien
+    // se reactiva y se afilia después de que su semana ya se congeló, el número se actualiza solo,
+    // en vez de quedarse pegado con el valor viejo guardado en ese momento.
+    const convertidosVivo=convertidosSemana(semKey,flota);
+    if(cong&&cong.porFlota&&cong.porFlota[flota]) return {...cong.porFlota[flota], convertidos:convertidosVivo};
     return {
       chatsIniciados:chatsIniciadosSemana(semKey,flota),
       enProceso:enProcesoSemana(semKey,flota),
       bolsa:bolsaSemana(semKey,flota),
-      convertidos:convertidosSemana(semKey,flota)
+      convertidos:convertidosVivo
     };
   };
   const esEnCurso=(semKey)=>!(ST.bolsaHistorial&&ST.bolsaHistorial[semKey]);
@@ -2797,17 +2801,21 @@ function renderReporteBolsa(){
   const totales={};
   semanas.forEach(s=>{totales[s]={chats:0,proc:0,bolsa:0,conv:0};});
 
-  // Para cada semana: si ya está congelada en ST.bolsaHistorial (semana cerrada), se usa ESE dato
-  // fijo, sin recalcular. Si es la semana en curso (su domingo todavía no llega), se calcula en
-  // vivo, porque todavía puede seguir cambiando hasta que cierre.
+  // Para cada semana: si ya está congelada en ST.bolsaHistorial (semana cerrada), se usa ese dato
+  // fijo para Chats/Proceso/Bolsa. Si es la semana en curso, se calcula en vivo, porque todavía
+  // puede seguir cambiando hasta que cierre.
+  // "Convertidos" es la EXCEPCIÓN: siempre se recalcula en vivo, incluso en semanas ya cerradas —
+  // así, si alguien se reactiva y se afilia después de que su semana ya se congeló, el número se
+  // actualiza solo, en vez de quedarse pegado con el valor viejo guardado en ese momento.
   const valor=(semKey,flota)=>{
     const cong=ST.bolsaHistorial&&ST.bolsaHistorial[semKey];
-    if(cong&&cong.porFlota&&cong.porFlota[flota]) return cong.porFlota[flota];
+    const convertidosVivo=convertidosSemana(semKey,flota);
+    if(cong&&cong.porFlota&&cong.porFlota[flota]) return {...cong.porFlota[flota], convertidos:convertidosVivo};
     return {
       chatsIniciados:chatsIniciadosSemana(semKey,flota),
       enProceso:enProcesoSemana(semKey,flota),
       bolsa:bolsaSemana(semKey,flota),
-      convertidos:convertidosSemana(semKey,flota)
+      convertidos:convertidosVivo
     };
   };
   const esEnCurso=(semKey)=>!(ST.bolsaHistorial&&ST.bolsaHistorial[semKey]);
