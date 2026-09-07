@@ -2747,14 +2747,18 @@ async function descargarBolsaSemanal(){
   const semanas=todasLasSemanas.slice(Math.min(idxDesde,idxHasta),Math.max(idxDesde,idxHasta)+1);
   const valor=(semKey,flota)=>{
     const cong=ST.bolsaHistorial&&ST.bolsaHistorial[semKey];
-    // "Convertidos" SIEMPRE se recalcula en vivo, incluso en semanas ya cerradas — así, si alguien
-    // se reactiva y se afilia después de que su semana ya se congeló, el número se actualiza solo,
-    // en vez de quedarse pegado con el valor viejo guardado en ese momento.
+    // "Chats iniciados", "En proceso" y "Convertidos" SIEMPRE se recalculan en vivo, incluso en
+    // semanas ya cerradas — así, si después se hace una carga masiva con fechas de contacto de
+    // esa semana (o alguien se reactiva y avanza), el número se actualiza solo, en vez de quedarse
+    // pegado con el valor viejo guardado en ese momento. Solo "Bolsa" se queda como snapshot
+    // histórico congelado — ese sí representa una foto fija de quién estaba atascado en ese momento.
+    const chatsVivo=chatsIniciadosSemana(semKey,flota);
+    const enProcesoVivo=enProcesoSemana(semKey,flota);
     const convertidosVivo=convertidosSemana(semKey,flota);
-    if(cong&&cong.porFlota&&cong.porFlota[flota]) return {...cong.porFlota[flota], convertidos:convertidosVivo};
+    if(cong&&cong.porFlota&&cong.porFlota[flota]) return {...cong.porFlota[flota], chatsIniciados:chatsVivo, enProceso:enProcesoVivo, convertidos:convertidosVivo};
     return {
-      chatsIniciados:chatsIniciadosSemana(semKey,flota),
-      enProceso:enProcesoSemana(semKey,flota),
+      chatsIniciados:chatsVivo,
+      enProceso:enProcesoVivo,
       bolsa:bolsaSemana(semKey,flota),
       convertidos:convertidosVivo
     };
@@ -2801,19 +2805,20 @@ function renderReporteBolsa(){
   const totales={};
   semanas.forEach(s=>{totales[s]={chats:0,proc:0,bolsa:0,conv:0};});
 
-  // Para cada semana: si ya está congelada en ST.bolsaHistorial (semana cerrada), se usa ese dato
-  // fijo para Chats/Proceso/Bolsa. Si es la semana en curso, se calcula en vivo, porque todavía
-  // puede seguir cambiando hasta que cierre.
-  // "Convertidos" es la EXCEPCIÓN: siempre se recalcula en vivo, incluso en semanas ya cerradas —
-  // así, si alguien se reactiva y se afilia después de que su semana ya se congeló, el número se
-  // actualiza solo, en vez de quedarse pegado con el valor viejo guardado en ese momento.
+  // Solo "Bolsa" se queda como snapshot histórico congelado en semanas ya cerradas — representa
+  // una foto fija de quién estaba atascado ahí en ese momento. "Chats iniciados", "En proceso" y
+  // "Convertidos" SIEMPRE se recalculan en vivo, incluso en semanas ya cerradas — así, si después
+  // se hace una carga masiva con fechas de contacto de esa semana (o alguien se reactiva y avanza),
+  // el número se actualiza solo, en vez de quedarse pegado con el valor viejo guardado en ese momento.
   const valor=(semKey,flota)=>{
     const cong=ST.bolsaHistorial&&ST.bolsaHistorial[semKey];
+    const chatsVivo=chatsIniciadosSemana(semKey,flota);
+    const enProcesoVivo=enProcesoSemana(semKey,flota);
     const convertidosVivo=convertidosSemana(semKey,flota);
-    if(cong&&cong.porFlota&&cong.porFlota[flota]) return {...cong.porFlota[flota], convertidos:convertidosVivo};
+    if(cong&&cong.porFlota&&cong.porFlota[flota]) return {...cong.porFlota[flota], chatsIniciados:chatsVivo, enProceso:enProcesoVivo, convertidos:convertidosVivo};
     return {
-      chatsIniciados:chatsIniciadosSemana(semKey,flota),
-      enProceso:enProcesoSemana(semKey,flota),
+      chatsIniciados:chatsVivo,
+      enProceso:enProcesoVivo,
       bolsa:bolsaSemana(semKey,flota),
       convertidos:convertidosVivo
     };
