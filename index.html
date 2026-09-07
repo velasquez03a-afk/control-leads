@@ -1403,13 +1403,17 @@ function verC(id){
   const isMktV=curU&&curU.role==='marketing';
   const dias=diasDesde(c.fechaContacto,c);
   const et=c.dropout?'No continúa':(ETAPAS[c.etapa]?.label||'—');
+  const puedeEditarEtapas=!isMktV; // Marketing solo puede ver, no mover etapas
   const stepsH=`<div style="display:flex;align-items:flex-start;gap:0;overflow-x:auto;padding:4px 0 10px">
     ${ETAPAS.map((e,i)=>{
       const done=!c.dropout&&c.etapa>e.id;
       const active=!c.dropout&&c.etapa===e.id;
       const drop=c.dropout&&c.etapa===e.id;
+      // Se puede hacer clic en cualquier etapa FUTURA (no la actual ni las ya pasadas) para saltar
+      // directo ahí, sin tener que ir "Avanzar" paso a paso — solo si el conductor no está de baja.
+      const clicable=puedeEditarEtapas&&!c.dropout&&e.id>c.etapa;
       return`${i>0?`<div class="step-line ${done||active?'done':''}"></div>`:''}
-      <div class="step-item">
+      <div class="step-item" ${clicable?`onclick="saltarEtapa('${c.id}',${e.id})" style="cursor:pointer" title="Avanzar directo a '${e.label}'"`:''}>
         <div class="step-c ${done?'done':active?'active':drop?'drop':''}">${done?'✓':drop?'✗':(i+1)}</div>
         <div class="step-lbl">${e.label}</div>
       </div>`;
@@ -1474,7 +1478,10 @@ function verC(id){
         }
       </div>`
       :''}'
-      ${c.dropout?`<div class="msg msg-err" style="margin-top:8px"><i class="ti ti-info-circle"></i> No continúa — ${c.motivoDropout||'Sin motivo especificado'}</div>`:''}
+      ${c.dropout?`<div class="msg msg-err" style="margin-top:8px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div><i class="ti ti-info-circle"></i> No continúa — ${c.motivoDropout||'Sin motivo especificado'}</div>
+        ${!isMktV?`<button class="btn btn-sm" style="background:#F0FDF4;border-color:#BBF7D0;color:#166534" onclick="reactivarConductor('${c.id}')"><i class="ti ti-rotate-clockwise"></i> Reactivar</button>`:''}
+      </div>`:''}
       <div class="divider"></div>
       <div style="font-size:12px;font-weight:600;margin-bottom:8px">Historial de seguimiento</div>
       <div style="max-height:180px;overflow-y:auto;display:flex;flex-direction:column;gap:6px">
@@ -1500,6 +1507,37 @@ async function avanzar(id){
   _marcarSucio(id);
   closeM();renderSec();saveBin(); // se guarda en segundo plano, sin bloquear la pantalla
   gMsg(`Conductor avanzado a "${ETAPAS[nv]?.label}".`);
+}
+
+// Avanzar de un clic directo sobre el stepper, saltando de una vez a la etapa que se elija (sin
+// tener que darle "Avanzar" una y otra vez). Solo permite ir hacia ADELANTE, y solo si no está de baja.
+async function saltarEtapa(id,etapaObjetivo){
+  const c=ST.conductores.find(x=>x.id===id);if(!c)return;
+  if(c.dropout||etapaObjetivo<=c.etapa)return;
+  const u=ST.users.find(x=>x.id===ST.session);
+  c.etapa=etapaObjetivo;c.historial=c.historial||[];
+  c.historial.push({fecha:hoy(),etapa:etapaObjetivo,nota:`Avanzó a ${ETAPAS[etapaObjetivo]?.label} (clic directo)`,usuario:u?u.nombre:''});
+  if(etapaObjetivo===7&&!c.fechaAfiliacion) c.fechaAfiliacion=hoy();
+  _marcarSucio(id);
+  closeM();renderSec();saveBin();
+  gMsg(`Conductor avanzado a "${ETAPAS[etapaObjetivo]?.label}".`);
+}
+
+// Reactivar a un conductor marcado como "No continúa" — lo devuelve al proceso activo, en la
+// misma etapa en la que se había quedado antes de la baja, para seguir su seguimiento desde ahí.
+// Tanto afiliadoras como el supervisor pueden hacerlo.
+async function reactivarConductor(id){
+  const c=ST.conductores.find(x=>x.id===id);if(!c||!c.dropout)return;
+  if(!confirm(`¿Reactivar a "${c.nombre}"? Volverá al proceso activo en la etapa "${ETAPAS[c.etapa]?.label}".`))return;
+  const u=ST.users.find(x=>x.id===ST.session);
+  const motivoAnterior=c.motivoDropout;
+  c.dropout=false;
+  c.motivoDropout='';
+  c.historial=c.historial||[];
+  c.historial.push({fecha:hoy(),etapa:c.etapa,nota:`Reactivado (antes: no continúa — ${motivoAnterior||'sin motivo'})`,usuario:u?u.nombre:''});
+  _marcarSucio(id);
+  closeM();renderSec();saveBin();
+  gMsg(`"${c.nombre}" fue reactivado y sigue en proceso.`);
 }
 
 function openDrop(id){
