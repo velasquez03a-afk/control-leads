@@ -1633,20 +1633,26 @@ function renderDiario(isA,isMkt){
     const totHL='background:#F1F5F9;font-weight:700';
     const embHL='background:#FEF9C3;font-weight:700;color:#713F12';
 
+    const flotaDeAg=c=>c.flota&&FLOTAS.includes(c.flota)?c.flota:'Sin flota (revisar)';
+    const canalDeAg=c=>c.canal&&CANALES.includes(c.canal)?c.canal:'Sin canal (revisar)';
     const tablaFlotaDia=(flota)=>{
-      const fd=todosDelDia.filter(c=>c.flota===flota);
-      if(!fd.length) return'<div style="padding:10px 14px;color:var(--text2);font-size:12px;display:flex;align-items:center;gap:8px;background:var(--bg3);border-radius:var(--radius-sm);margin-bottom:8px"><span class="stag '+flotaC[flota]+'">'+flota+'</span> Sin actividad el '+(esHoy?'día de hoy':fFecha)+'.</div>';
+      const fd=todosDelDia.filter(c=>flotaDeAg(c)===flota);
+      if(!fd.length) return'<div style="padding:10px 14px;color:var(--text2);font-size:12px;display:flex;align-items:center;gap:8px;background:var(--bg3);border-radius:var(--radius-sm);margin-bottom:8px"><span class="stag '+(flotaC[flota]||'')+'">'+flota+'</span> Sin actividad el '+(esHoy?'día de hoy':fFecha)+'.</div>';
 
+      // Si algún conductor tiene un Canal que no coincide EXACTAMENTE con la lista oficial, se
+      // agrega automáticamente para que no desaparezca de la tabla y el Total siempre cuadre.
+      const canalesExtra=[...new Set(fd.map(canalDeAg).filter(cn=>!CANALES.includes(cn)))];
+      const canalesAqui=CANALES.concat(canalesExtra);
       const canalTots={};
-      CANALES.forEach(c=>{canalTots[c]=stDia(fd.filter(x=>x.canal===c));});
+      canalesAqui.forEach(c=>{canalTots[c]=stDia(fd.filter(x=>canalDeAg(x)===c));});
       const grand=stDia(fd);
       const diaLabel=esHoy?'Hoy':fFecha;
 
       let rows='';
-      CANALES.forEach((canal,ci)=>{
-        const cs=stDia(fd.filter(x=>x.canal===canal));
+      canalesAqui.forEach((canal,ci)=>{
+        const cs=stDia(fd.filter(x=>canalDeAg(x)===canal));
         rows+='<tr>'
-          +(ci===0?'<td rowspan="'+CANALES.length+'" style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;'+semHL+';font-weight:600;vertical-align:middle;font-size:11px">'+diaLabel+'</td>':'')
+          +(ci===0?'<td rowspan="'+canalesAqui.length+'" style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;'+semHL+';font-weight:600;vertical-align:middle;font-size:11px">'+diaLabel+'</td>':'')
           +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;font-size:11px">'+canal+'</td>'
           +celda(cs.chats,true)
           +celda(cs.califica,false,'#166534')
@@ -1664,7 +1670,7 @@ function renderDiario(isA,isMkt){
           +'</tr>';
       });
 
-      CANALES.forEach(canal=>{
+      canalesAqui.forEach(canal=>{
         const ct=canalTots[canal];
         rows+='<tr style="'+totHL+'">'
           +'<td style="padding:5px 4px;border:0.5px solid #CBD5E1;'+totHL+';font-style:italic" colspan="2">Total '+canal+'</td>'
@@ -1756,7 +1762,7 @@ function renderDiario(isA,isMkt){
     +'<div class="mcard"><div class="mval" style="color:var(--err)">'+todosDelDia.filter(c=>c.dropout).length+'</div><div class="mlbl">Bajas</div></div>'
     +'</div>'
     +'</div>'
-    +FLOTAS.map(f=>tablaFlotaDia(f)).join('')
+    +FLOTAS.concat([...new Set(todosDelDia.map(flotaDeAg).filter(f=>!FLOTAS.includes(f)))]).map(f=>tablaFlotaDia(f)).join('')
     +'</div>';
   }
 
@@ -1831,12 +1837,21 @@ function renderDiario(isA,isMkt){
     CANALES.forEach(canal=>{canalTots[canal]=stAg(todosAg.filter(x=>x.canal===canal));});
     const grand=stAg(todosAg);
     let rows='';
-    FLOTAS.forEach(flota=>{
-      const fd=todosAg.filter(c=>c.flota===flota);
-      CANALES.forEach((canal,ci)=>{
-        const cs=stAg(fd.filter(c=>c.canal===canal));
+    // Si algún conductor tiene una Flota o Canal que no coincide EXACTAMENTE con la lista oficial
+    // (vacío, mal escrito, etc.), antes desaparecía de esta tabla desglosada aunque sí se sumaba
+    // en el TOTAL — por eso los números no cuadraban. Ahora se agrega automáticamente a la lista
+    // que se recorre, para que nadie quede fuera y el Total siempre coincida con la suma visible.
+    const flotaDe=c=>c.flota&&FLOTAS.includes(c.flota)?c.flota:'Sin flota (revisar)';
+    const canalDe=c=>c.canal&&CANALES.includes(c.canal)?c.canal:'Sin canal (revisar)';
+    const flotasExtra=[...new Set(todosAg.map(flotaDe).filter(f=>!FLOTAS.includes(f)))];
+    FLOTAS.concat(flotasExtra).forEach(flota=>{
+      const fd=todosAg.filter(c=>flotaDe(c)===flota);
+      const canalesExtra=[...new Set(fd.map(canalDe).filter(cn=>!CANALES.includes(cn)))];
+      const canalesAqui=CANALES.concat(canalesExtra);
+      canalesAqui.forEach((canal,ci)=>{
+        const cs=stAg(fd.filter(c=>canalDe(c)===canal));
         rows+='<tr>'
-          +(ci===0?'<td rowspan="'+CANALES.length+'" style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;background:#F0FDF4;font-weight:600;vertical-align:middle;font-size:11px"><span class="stag '+flotaC[flota]+'">'+flota+'</span></td>':'')
+          +(ci===0?'<td rowspan="'+canalesAqui.length+'" style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;background:#F0FDF4;font-weight:600;vertical-align:middle;font-size:11px"><span class="stag '+(flotaC[flota]||'')+'">'+flota+'</span></td>':'')
           +'<td style="padding:5px 4px;text-align:center;border:0.5px solid #CBD5E1;font-size:11px">'+canal+'</td>'
           +celda(cs.chats,true)+celda(cs.califica,false,'#166534')+celda(cs.noCalif,false,'#A32D2D')
           +celda(cs.enProceso,false,'#0891B2')
@@ -1899,7 +1914,7 @@ function renderDiario(isA,isMkt){
 
   const kpisHtml='<div class="g4" style="margin-bottom:14px">'
     +'<div class="mcard"><div class="mval" style="color:var(--blue)">'+totalNuevos+'</div><div class="mlbl">Nuevos hoy</div><div class="msub" style="color:var(--text2)">/'+META_DIARIA+' meta día</div></div>'
-    +'<div class="mcard"><div class="mval" style="color:#5B21B6">'+totalMov+'</div><div class="mlbl">Con avance</div></div>'
+    +'<div class="mcard"><div class="mval" style="color:#5B21B6">'+totalMov+'</div><div class="mlbl">De días pasados</div><div class="msub" style="color:var(--text2)">con actividad hoy</div></div>'
     +'<div class="mcard"><div class="mval" style="color:var(--green)">'+totalAfil+'</div><div class="mlbl">Afiliados hoy</div></div>'
     +'<div class="mcard"><div class="mval" style="color:var(--err)">'+totalDrop+'</div><div class="mlbl">Bajas hoy</div></div>'
     +'</div>';
