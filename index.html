@@ -2437,43 +2437,55 @@ function procesarArchivoFinanzas(file){
       const fechaCap=_parseFechaFlexible(f[col('CAPACITADO EL:')]);
       const titular=String(f[col('TITULAR PARA PAGOS')]||'').trim();
       const esTercero=titular.toLowerCase()==='tercero';
+
+      // Documento: si dice "Carnet de Extranjería" (como llega del Registro), se abrevia a "CE".
+      const tipoDocRaw=String(f[col('TIPO DOCUMENTO')]||'').trim();
+      const tipoDoc=/carnet\s*de\s*extranjer/i.test(tipoDocRaw)?'CE':tipoDocRaw;
+
+      // Servicio Contable: la columna "C/S Servicio contable" ahora trae directamente Sí/No.
+      const scRaw=String(f[col('C/S SERVICIO CONTABLE')]||'').trim().toLowerCase();
+      const servicioContable=scRaw==='si'||scRaw==='sí'?'BASICO':'FACTURACION POR CUENTA PROPIA';
+
+      const paterno=String(f[col('A.PATERNO')]||'').trim();
+      const materno=String(f[col('A.MATERNO')]||'').trim();
+      const nombres=String(f[col('NOMBRES')]||'').trim();
+      const numDoc=String(f[col('NUMDOCUMENTO')]||'').trim();
+      const placa=String(f[col('PLACA')]||'').trim();
+      const categoria=String(f[col('CATEGORIA DE VEHÍCULO')]||'').trim();
+      const celular=String(f[col('CELULAR')]||'').trim();
+      const direccion=String(f[col('DIRECCIÓN')]||'').trim();
+      const distrito=String(f[col('DISTRITO')]||'').trim();
+      const banco=String(f[col('BANCO')]||'').trim();
+      const cuenta=String(f[col('Nº DE CUENTA')]||'').trim();
       const ruc=String(f[col('RUC')]||'').trim();
-      const obs=f[col('OBS')];
-      const cred=ruc?_parseObsCredenciales(obs):{usuario:'',clave:'',correo:''};
-      // Criterio de Servicio Contable: si no se detectan USUARIO y CLAVE (sea porque no hay RUC
-      // o porque el campo de observaciones no traía los datos), se considera que el conductor
-      // factura por cuenta propia. Solo se marca "BASICO" cuando sí se logró detectar usuario y clave.
-      const sinCredenciales=!cred.usuario.trim()&&!cred.clave.trim();
+      const usuario=String(f[col('USUARIO')]||'').trim();
+      const clave=String(f[col('CONTRASEÑA')]||'').trim();
+      const correo=String(f[col('CORREO')]||'').trim();
+
+      // Observaciones: si falta algún dato de los que NO se llenan a mano (Membresía, Subflota,
+      // Turno quedan fuera de esta revisión porque son manuales), se marca "PENDIENTE"; si todo
+      // lo demás está completo, se marca "OK ACCESOS".
+      const camposClave=[paterno,materno,nombres,tipoDoc,numDoc,placa,categoria,celular,direccion,distrito,banco,cuenta];
+      const observaciones=camposClave.some(v=>!v)?'PENDIENTE':'OK ACCESOS';
 
       filas.push({
         fechaCap,
-        paterno:String(f[col('A.PATERNO')]||'').trim(),
-        materno:String(f[col('A.MATERNO')]||'').trim(),
-        nombres:String(f[col('NOMBRES')]||'').trim(),
-        tipoDoc:String(f[col('TIPO DOCUMENTO')]||'').trim(),
-        numDoc:String(f[col('NUMDOCUMENTO')]||'').trim(),
-        placa:String(f[col('PLACA')]||'').trim(),
-        categoria:String(f[col('CATEGORIA DE VEHÍCULO')]||'').trim(),
-        flota:String(f[col('FLOTA')]||'').trim(),
+        paterno,materno,nombres,
+        tipoDoc,numDoc,
+        placa,categoria,
+        flota:String(f[col('FLOTA')]||'').trim(), // OPERACION
         titular:titular||'—',
-        celular:String(f[col('CELULAR')]||'').trim(),
-        direccion:String(f[col('DIRECCIÓN')]||'').trim(),
-        distrito:String(f[col('DISTRITO')]||'').trim(),
-        ruc,
-        servicioContable:sinCredenciales?'FACTURACION POR CUENTA PROPIA':'BASICO',
-        usuario:cred.usuario,
-        clave:cred.clave,
-        correo:cred.correo,
-        banco:String(f[col('BANCO')]||'').trim(),
-        cuenta:String(f[col('Nº DE CUENTA')]||'').trim(),
+        celular,direccion,distrito,
+        ruc,servicioContable,usuario,clave,correo,banco,cuenta,
         // Titular a pagar (persona): si es tercero, usa sus datos; si no, se repiten los del propio conductor
-        pagoPaterno:esTercero?String(f[col('A. PATERNO DEL TERCERO')]||'').trim():String(f[col('A.PATERNO')]||'').trim(),
-        pagoMaterno:esTercero?String(f[col('A. MATERNO DEL TERCERO')]||'').trim():String(f[col('A.MATERNO')]||'').trim(),
-        pagoNombres:esTercero?String(f[col('NOMBRES DEL TERCERO')]||'').trim():String(f[col('NOMBRES')]||'').trim(),
-        pagoTipoDoc:esTercero?'DNI':String(f[col('TIPO DOCUMENTO')]||'').trim(),
-        pagoNumDoc:esTercero?String(f[col('DNI DEL TERCERO')]||'').trim():String(f[col('NUMDOCUMENTO')]||'').trim(),
+        pagoPaterno:esTercero?String(f[col('A. PATERNO DEL TERCERO')]||'').trim():paterno,
+        pagoMaterno:esTercero?String(f[col('A. MATERNO DEL TERCERO')]||'').trim():materno,
+        pagoNombres:esTercero?String(f[col('NOMBRES DEL TERCERO')]||'').trim():nombres,
+        pagoTipoDoc:esTercero?'DNI':tipoDoc,
+        pagoNumDoc:esTercero?String(f[col('DNI DEL TERCERO')]||'').trim():numDoc,
         capacitacion:String(f[col('CAPACITADO EL:')]||'').trim(),
         codigoUnidad:String(f[col('N MOVIL')]||'').trim(),
+        observaciones,
       });
     }
     _reporteFinanzasPreview=filas;
@@ -2513,17 +2525,16 @@ async function descargarReporteFinanzas(){
   const aoa=[];
   aoa[0]=[]; aoa[0][7]='NUEVOS INGRESOS '+rangoTxt;
   aoa[1]=[];
-  aoa[2]=['','MEMBRESIA AEROPUERTO','','CODIGO UNIDAD','CAPACITACION','OPERACION','TURNO','APELLIDOS','','NOMBRES','DOCUMENTO','N° DOCUMENTO','PLACA','CATEGORIA','TITULAR A PAGAR','APELLIDOS Y NOMBRES','','DOCUMENTO','N° DOCUMENTO','RUC','USUARIO','CLAVE','BANCO','CUENTA BANCARIA','CELULAR','SERVICIO CONTABLE','DIRECCIÓN','DISTRITO','CORREO','OBSERVACIONES'];
+  aoa[2]=['','MEMBRESIA AEROPUERTO','MOVIL','CAPACITACION','OPERACION','SUBFLOTA','TURNO','APELLIDOS','','NOMBRES','DOCUMENTO','N° DOCUMENTO','PLACA','CATEGORIA','TITULAR A PAGAR','APELLIDOS Y NOMBRES','','DOCUMENTO','N° DOCUMENTO','RUC','USUARIO','CLAVE','BANCO','CUENTA BANCARIA','CELULAR','SERVICIO CONTABLE','DIRECCIÓN','DISTRITO','CORREO','OBSERVACIONES'];
 
   filas.forEach(f=>{
-    aoa.push(['','','',f.codigoUnidad,f.capacitacion,f.flota,'',f.paterno,f.materno,f.nombres,f.tipoDoc,f.numDoc,f.placa,f.categoria,f.titular,
-      f.pagoPaterno+' '+f.pagoMaterno,f.pagoNombres,f.pagoTipoDoc,f.pagoNumDoc,f.ruc,f.usuario,f.clave,f.banco,f.cuenta,f.celular,f.servicioContable,f.direccion,f.distrito,f.correo,'']);
+    aoa.push(['','',f.codigoUnidad,f.capacitacion,f.flota,'','',f.paterno,f.materno,f.nombres,f.tipoDoc,f.numDoc,f.placa,f.categoria,f.titular,
+      f.pagoPaterno+' '+f.pagoMaterno,f.pagoNombres,f.pagoTipoDoc,f.pagoNumDoc,f.ruc,f.usuario,f.clave,f.banco,f.cuenta,f.celular,f.servicioContable,f.direccion,f.distrito,f.correo,f.observaciones]);
   });
 
   const ws=XLSX.utils.aoa_to_sheet(aoa);
   ws['!merges']=[
     {s:{r:0,c:7},e:{r:0,c:11}},   // título
-    {s:{r:2,c:1},e:{r:2,c:2}},    // MEMBRESIA AEROPUERTO
     {s:{r:2,c:7},e:{r:2,c:8}},    // APELLIDOS
     {s:{r:2,c:15},e:{r:2,c:16}},  // APELLIDOS Y NOMBRES (pago)
   ];
@@ -2542,7 +2553,7 @@ function renderReporteFinanzas(){
 
     <div class="card" style="padding:16px;margin-bottom:16px">
       <div style="font-size:13px;color:var(--text2);margin-bottom:14px">
-        Sube el Excel exportado de SharePoint tal cual (sin modificarlo). El sistema toma automáticamente solo los conductores con estado <b>"Ingresó-Capacitado"</b> y arma el reporte con el formato de Finanzas.
+        Sube el archivo "Registro de Conductores" tal cual (Excel o CSV, sin modificarlo). El sistema toma automáticamente solo los conductores con estado <b>"Ingresó-Capacitado"</b> y arma el reporte con el formato de Finanzas.
       </div>
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:420px;margin-bottom:16px">
@@ -2556,9 +2567,9 @@ function renderReporteFinanzas(){
         ondragleave="this.style.borderColor='';this.style.background='var(--bg3)'"
         ondrop="event.preventDefault();this.style.borderColor='';this.style.background='var(--bg3)';procesarArchivoFinanzas(event.dataTransfer.files[0])">
         <i class="ti ti-upload" style="font-size:2rem;color:#166534;display:block;margin-bottom:8px"></i>
-        <div style="font-size:14px;font-weight:600;color:#166534">Arrastra el Excel de SharePoint aquí</div>
-        <div style="font-size:12px;color:var(--text2);margin-top:4px">o haz clic para seleccionar (.xlsx)</div>
-        <input type="file" id="rf-file" accept=".xlsx,.xls" style="display:none" onchange="procesarArchivoFinanzas(this.files[0])">
+        <div style="font-size:14px;font-weight:600;color:#166534">Arrastra el Registro de Conductores aquí</div>
+        <div style="font-size:12px;color:var(--text2);margin-top:4px">o haz clic para seleccionar (.xlsx, .xls, .csv)</div>
+        <input type="file" id="rf-file" accept=".xlsx,.xls,.csv" style="display:none" onchange="procesarArchivoFinanzas(this.files[0])">
       </div>
 
       <div id="rf-preview" style="display:none"></div>
