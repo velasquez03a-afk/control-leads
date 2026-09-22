@@ -162,6 +162,9 @@ const LS_KEY='leads_local_v5';
 // Se usa para BUSCAR/COMPARAR celulares (acepta números parciales, ej. mientras se escribe en el buscador).
 function normCel(v){
   let d=String(v||'').replace(/\D/g,'');
+  // Código especial tipo "PE.1697442514654584" (16 dígitos): NO es un celular con prefijo de país,
+  // así que no se le debe recortar nada — se compara tal cual, dígito por dígito.
+  if(d.length===16) return d;
   if(d.length>9&&d.startsWith('591'))d=d.slice(3);
   else if(d.length>9&&d.startsWith('51'))d=d.slice(2);
   return d;
@@ -170,9 +173,16 @@ function normCel(v){
 // Debe quedar en exactamente 9 dígitos Y empezar en "9" (así son SIEMPRE los celulares en Perú;
 // los fijos, RUCs u otros números no arrancan en 9). Si viene con el prefijo de país "51"
 // (ej. 51987654321, 11 dígitos), se toma desde el tercer número en adelante (el "9"), descartando el "51".
-// Cualquier otro resultado que no sea de 9 dígitos empezando en 9 NO es un celular válido → devuelve null.
+// EXCEPCIÓN: algunos conductores ingresan con un código tipo "PE.1697442514654584" (16 dígitos) en
+// vez de un celular real, porque su número real no quedó registrado — ese código se acepta tal
+// cual, tratándolo como si fuera el celular.
+// Cualquier otro resultado que no sea de 9 dígitos empezando en 9 (ni el código especial) NO es
+// válido → devuelve null.
 function validarCelular(v){
-  let d=String(v||'').replace(/\D/g,'');
+  const s=String(v||'').trim();
+  const mCodigo=s.match(/^PE\.(\d{16})$/i);
+  if(mCodigo) return 'PE.'+mCodigo[1];
+  let d=s.replace(/\D/g,'');
   if(d.length===11&&d.startsWith('51'))d=d.slice(2);
   else if(d.length===12&&d.startsWith('591'))d=d.slice(3);
   return (d.length===9&&d.startsWith('9'))?d:null;
@@ -241,6 +251,7 @@ const DEFAULT_USERS=[
   {id:'u4',nombre:'Rommy',pin:'1234',role:'agente'},
   {id:'u5',nombre:'Denisse',pin:'1234',role:'agente'},
   {id:'u6',nombre:'Melissa',pin:'1234',role:'agente'},
+  {id:'u7',nombre:'Rocío',pin:'1234',role:'agente'},
   {id:'mkt',nombre:'Marketing',pin:'mkt2024',role:'marketing'},
   {id:'admin',nombre:'Supervisor',pin:'admin123',role:'admin'},
   {id:'rep',nombre:'Reportes',pin:'rep2024',role:'reportes'},
@@ -545,14 +556,15 @@ async function initBin(){
   // Todo esto va envuelto en try/catch: si alguna migración falla con datos reales que no
   // esperábamos, NO debe dejar la app trabada en "Conectando..." — mejor seguir sin esa
   // migración puntual que bloquear el uso de toda la app.
-  let _cambiosInactivos=0,_huboLimpieza=false,_huboNuevasBolsa=false,_huboCompletado=false,_huboDenisse=false,_huboMelisa=false;
+  let _cambiosInactivos=0,_huboLimpieza=false,_huboNuevasBolsa=false,_huboCompletado=false,_huboDenisse=false,_huboMelisa=false,_huboRocio=false;
   try{ _cambiosInactivos=_autoMarcarInactivos(); }catch(e){ console.error('Error en _autoMarcarInactivos:',e); }
   try{ _huboLimpieza=limpiarBolsaHistorialAntiguo(); }catch(e){ console.error('Error en limpiarBolsaHistorialAntiguo:',e); }
   try{ _huboNuevasBolsa=capturarBolsaSemanasVencidas(); }catch(e){ console.error('Error en capturarBolsaSemanasVencidas:',e); }
   try{ _huboCompletado=corregirCriterioBolsaAntiguo(); }catch(e){ console.error('Error en corregirCriterioBolsaAntiguo:',e); }
   try{ _huboDenisse=crearAgenteDenisse(); }catch(e){ console.error('Error en crearAgenteDenisse:',e); }
   try{ _huboMelisa=crearAgenteMelisa(); }catch(e){ console.error('Error en crearAgenteMelisa:',e); }
-  if(_cambiosInactivos>0||_huboLimpieza||_huboNuevasBolsa||_huboCompletado||_huboDenisse||_huboMelisa){
+  try{ _huboRocio=crearAgenteRocio(); }catch(e){ console.error('Error en crearAgenteRocio:',e); }
+  if(_cambiosInactivos>0||_huboLimpieza||_huboNuevasBolsa||_huboCompletado||_huboDenisse||_huboMelisa||_huboRocio){
     try{ await saveBin(); }catch(e){ console.error('Error guardando tras migraciones:',e); }
   }
   syncBadge();
@@ -932,6 +944,18 @@ function crearAgenteMelisa(){
   const idxDenisse=ST.users.findIndex(u=>u.nombre.trim().toLowerCase()==='denisse');
   if(idxDenisse>=0) ST.users.splice(idxDenisse+1,0,nueva); // justo debajo de Denisse
   else ST.users.push(nueva); // si no encuentra a Denisse, se agrega al final por seguridad
+  return true;
+}
+
+// ── NUEVA AGENTE: Rocío (afiliadora) ──────────────────────
+// Mismo caso que Denisse/Melissa: se agrega a la base YA EXISTENTE una sola vez, justo debajo de Melissa.
+function crearAgenteRocio(){
+  ST.users=ST.users||[];
+  if(ST.users.some(u=>u.nombre.trim().toLowerCase()==='rocío'||u.nombre.trim().toLowerCase()==='rocio')) return false; // ya existe: no duplicar
+  const nueva={id:'u_rocio',nombre:'Rocío',pin:'1234',role:'agente'};
+  const idxMelissa=ST.users.findIndex(u=>u.nombre.trim().toLowerCase()==='melissa');
+  if(idxMelissa>=0) ST.users.splice(idxMelissa+1,0,nueva); // justo debajo de Melissa
+  else ST.users.push(nueva); // si no encuentra a Melissa, se agrega al final por seguridad
   return true;
 }
 
